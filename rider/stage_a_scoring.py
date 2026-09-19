@@ -59,8 +59,10 @@ class StageAConfig:
     # median of 0.05 and a 75th percentile of 0.14, so at 0.1 ordinary talking
     # scored (37 % of sampled seconds) — at 0.3 only real mouth-opening does
     # (10 %). The 1 s cooldown from that tuning round is kept.
+    # Then raised to 0.4 (team decision, same day): a clearly open mouth, with some
+    # margin above main.py's 0.3 line; recorded yawns on this camera peak at 0.4-0.9.
     # Both are overridable at start-up: --mar-threshold / --yawn-cooldown.
-    mar_yawn_threshold: float = 0.3
+    mar_yawn_threshold: float = 0.4
     yawn_add: float = 3.0
     yawn_cooldown_sec: float = 1.0  # min gap between counted mouth-open events
 
