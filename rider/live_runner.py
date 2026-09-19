@@ -129,7 +129,8 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
     perclos_tracker = PerclosTracker(window_seconds=args.perclos_window)
     scorer = StageAScorer(StageAConfig(mar_yawn_threshold=args.mar_threshold,
                                        yawn_cooldown_sec=args.yawn_cooldown,
-                                       perclos_threshold=args.perclos_threshold))
+                                       perclos_threshold=args.perclos_threshold,
+                                       decay_per_sec=args.decay_per_sec))
     last_seq, frames, faces = 0, 0, 0
     errors, last_error_log = 0, 0.0
     window_start, window_frames = time.time(), 0
@@ -284,6 +285,8 @@ def main() -> None:
                         help="seconds before another mouth-open event can score")
     parser.add_argument("--perclos-threshold", type=float, default=defaults.perclos_threshold,
                         help="eye-closure share of the window above which points accrue per second")
+    parser.add_argument("--decay-per-sec", type=float, default=defaults.decay_per_sec,
+                        help="points the score loses per second while no rule is firing")
     parser.add_argument("--no-overlay", action="store_true",
                         help="stream the raw picture without the DMS face box / mesh / status text")
     parser.add_argument("--perclos-window", type=float, default=30.0,
@@ -300,7 +303,7 @@ def main() -> None:
     if args.http:
         transports.append(HttpTransport(args.http))
     print(f"stage A: MAR>{args.mar_threshold} (+3, cooldown {args.yawn_cooldown}s), "
-          f"PERCLOS>{args.perclos_threshold} (+2/s)", flush=True)
+          f"PERCLOS>{args.perclos_threshold} (+2/s), decay {args.decay_per_sec}/s", flush=True)
     print(f"rider {args.rider_id}: publishing to {[t.name for t in transports] or 'NOWHERE'}; "
           f"perclos window {args.perclos_window:.0f}s", flush=True)
 

@@ -29,7 +29,16 @@ class TimescaleTest(unittest.TestCase):
     def test_decay_is_fps_independent(self):
         scores = [run(fps, [(10, CLOSED), (6, NORMAL)]) for fps in (1, 15)]
         self.assertAlmostEqual(scores[0], scores[1], delta=2.1, msg=scores)
-        self.assertLess(scores[1], 16.0)
+        expected = 20.0 - 6.0 * StageAConfig().decay_per_sec        # 10 s of accrual, then 6 s of decay
+        self.assertAlmostEqual(scores[1], expected, delta=2.5, msg=scores)
+
+    def test_decay_rate_is_the_configured_one(self):
+        scorer = StageAScorer(StageAConfig(decay_per_sec=0.3))
+        scorer.score = 15.0
+        for i in range(1, 25):                                     # 23 s at 1 Hz after the first (dt = 0) update
+            result = scorer.update(timestamp=float(i), **NORMAL)
+        self.assertAlmostEqual(result["score"], 15.0 - 23 * 0.3, delta=0.05)
+        self.assertLessEqual(result["score"], 8.1, "pause line -> resume line should take about 23 s")
 
     def test_gap_neither_accrues_nor_decays_for_the_whole_hole(self):
         scorer = StageAScorer(StageAConfig())

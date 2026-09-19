@@ -72,7 +72,11 @@ class StageAConfig:
 
     audio_bonus_add: float = 1.0  # only ever applied on top of an already-firing rule
 
-    decay_per_sec: float = 1.0
+    # 2026-09-19 (team decision): 1.0 -> 0.3. At 1.0 a score of 10 was back to
+    # zero in 10 s, faster than anyone could read it off the dashboard. At 0.3:
+    # pause line (15) -> resume line (8) takes ~23 s; cap (30) -> resume ~73 s.
+    # Override at start-up with --decay-per-sec.
+    decay_per_sec: float = 0.3
     # Cap close above the platform's pause threshold (15): with the old cap of
     # 100 a rider who had been flagged for a while needed ~90 s of normal
     # behaviour before dispatch could resume; at 30 it is ~22 s.
