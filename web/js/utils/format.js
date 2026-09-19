@@ -28,11 +28,11 @@ export const EVENT_TEXT = {
 };
 
 export function unknownReason(rider) {
+  if (rider.link === 'waiting') return '尚未收到資料';
+  if (rider.link === 'stale') return '訊號延遲，分數暫停顯示';
+  if (rider.link === 'offline') return '訊號中斷，分數暫停顯示';
   if (rider.perception === 'no_face') return '偵測不到人臉，分數暫停更新';
   if (rider.perception === 'camera_error') return '攝影機故障';
-  if (rider.link === 'waiting') return '尚未收到資料';
-  if (rider.link === 'stale') return '訊號延遲，以下為最後一筆分數';
-  if (rider.link === 'offline') return '訊號中斷，以下為最後一筆分數';
   return '';
 }
 

@@ -76,7 +76,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
       name.textContent = rider.name;
       tag.textContent = SOURCE_TEXT[rider.source] || rider.source;
       tag.dataset.source = rider.source;
-      value.textContent = fmtScore(rider.score);
+      value.textContent = !unknown && rider.link === 'online' ? fmtScore(rider.score) : '—';
       hero.dataset.dim = String(unknown);
       badge.update(rider.status);
       note.textContent = unknown
