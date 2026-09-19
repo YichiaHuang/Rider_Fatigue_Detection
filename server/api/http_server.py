@@ -36,6 +36,7 @@ SSE_HEARTBEAT_SEC = 10.0
 SSE_QUEUE_SIZE = 500
 MAX_BODY = 64 * 1024
 MJPEG_BOUNDARY = "frame"
+STREAM_RESUME_WINDOW_SEC = 45.0   # how long a viewer's stream waits for the board to come back
 TRANSPARENT_GIF = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,"
                    b"\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
 
@@ -199,11 +200,28 @@ def make_handler(config: Config, store: RiderStore, boards: dict, sources: list,
             self.close_connection = True
             try:
                 jpeg = first
-                while jpeg is not None:
-                    self.wfile.write(
-                        f"--{MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}\r\n\r\n".encode()
-                        + jpeg + b"\r\n")
-                    jpeg = next(frames, None)
+                while True:
+                    while jpeg is not None:
+                        self.wfile.write(
+                            f"--{MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}\r\n\r\n".encode()
+                            + jpeg + b"\r\n")
+                        jpeg = next(frames, None)
+                    # Upstream ended. If the board runner was merely restarted (deploy,
+                    # crash + supervisor) the picture should come back by itself: keep
+                    # this response open and re-attach, instead of leaving the browser
+                    # with a frozen last frame. Demo mode switched off (403) ends it.
+                    frames.close()
+                    jpeg, deadline = None, time.time() + STREAM_RESUME_WINDOW_SEC
+                    while jpeg is None and time.time() < deadline:
+                        time.sleep(1.0)
+                        frames = board.subscribe_frames()
+                        try:
+                            jpeg = next(frames, None)
+                        except StreamUnavailable as exc:
+                            if exc.code == 403:
+                                return
+                    if jpeg is None:
+                        return
             except (OSError, TimeoutError):
                 pass
             finally:
