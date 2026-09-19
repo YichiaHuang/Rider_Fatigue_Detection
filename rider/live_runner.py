@@ -301,8 +301,8 @@ def main() -> None:
     ppg = None
     if args.ppg == "auto":
         try:
-            from ppg_reader import PpgMonitor, PpgUnavailable
-            ppg = PpgMonitor(args.i2c_bus)
+            from ppg_reader import PpgProcess
+            ppg = PpgProcess(args.i2c_bus)
             ppg.start()
             print("ppg: MAX30102 found, heart rate enabled (published in demo mode only)", flush=True)
         except Exception as exc:  # no sensor / rail off / smbus2 missing: carry on without vitals
@@ -315,6 +315,8 @@ def main() -> None:
         pass
     finally:
         stop.set()
+        if ppg is not None:
+            ppg.stop()
         server.shutdown()
         source.stop()
 

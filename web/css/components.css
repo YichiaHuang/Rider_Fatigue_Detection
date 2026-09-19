@@ -192,3 +192,6 @@ table.data .empty { color: var(--text-muted); text-align: center; padding: 16px;
 .vitals:not([data-quality="good"]) .pulse-line { stroke: var(--text-muted); }
 .app.video-focus .vitals-rate .value { font-size: 26px; }
 .app.video-focus .pulse-wave { height: 40px; }
+.vitals-raw { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 4px; }
+.vitals-raw .tile .value { font-size: 16px; }
+.app.video-focus .vitals-raw { grid-template-columns: repeat(2, minmax(0, 1fr)); }

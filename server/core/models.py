@@ -62,6 +62,9 @@ class VitalsSample:
     heart_rate_bpm: "float | None" = None
     rmssd_ms: "float | None" = None
     perfusion_index: "float | None" = None
+    ir_dc: "float | None" = None        # raw IR level: ~1-2k bare sensor, >50k on skin
+    autocorr: "float | None" = None     # periodicity 0-1; the board needs >= 0.3 to trust a rate
+    sample_hz: "float | None" = None    # samples actually received per second (nominal 50)
     waveform: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
@@ -129,4 +132,7 @@ def parse_vitals(rider_id: str, payload: dict) -> VitalsSample:
         heart_rate_bpm=rate if quality == "good" else None,
         rmssd_ms=_number(payload, "rmssd_ms", required=False),
         perfusion_index=_number(payload, "perfusion_index", required=False),
+        ir_dc=_number(payload, "ir_dc", required=False),
+        autocorr=_number(payload, "autocorr", required=False),
+        sample_hz=_number(payload, "sample_hz", required=False),
         waveform=tuple(float(v) for v in waveform))

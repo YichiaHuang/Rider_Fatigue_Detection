@@ -17,6 +17,19 @@ export function createVitalsPanel() {
   const value = el('span', { class: 'value', text: '—' });
   const state = el('span', { class: 'vitals-state' });
   const extra = el('div', { class: 'card-sub' });
+  // Raw sensor numbers, always shown while data arrives — this is what you watch
+  // while positioning the sensor, long before a heart rate can be trusted.
+  const RAW = [
+    { key: 'ir_dc', label: '訊號強度 IR', hint: '貼好 > 50,000', fmt: (v) => Math.round(v).toLocaleString('en-US') },
+    { key: 'perfusion_index', label: '灌流指數', hint: '% · 越高越好', fmt: (v) => fmtNum(v, 2) },
+    { key: 'autocorr', label: '週期性', hint: '≥ 0.30 才採信', fmt: (v) => fmtNum(v, 2) },
+    { key: 'sample_hz', label: '取樣率', hint: 'Hz · 應為 50', fmt: (v) => fmtNum(v, 1) },
+  ].map((r) => {
+    const v = el('div', { class: 'value', text: '—' });
+    return { ...r, v, node: el('div', { class: 'tile' }, el('div', { class: 'label', text: r.label }), v,
+      el('div', { class: 'hint', text: r.hint })) };
+  });
+  const rawTiles = el('div', { class: 'tiles vitals-raw' }, RAW.map((r) => r.node));
   const path = document.createElementNS(SVG_NS, 'path');
   path.setAttribute('class', 'pulse-line');
   const wave = document.createElementNS(SVG_NS, 'svg');
@@ -30,7 +43,7 @@ export function createVitalsPanel() {
     el('div', { class: 'card-sub', text: '心率（PPG 感測器）' }),
     el('div', { class: 'vitals-row' },
       el('div', { class: 'vitals-rate' }, value, el('span', { class: 'unit', text: 'bpm' })), state),
-    wave, extra);
+    wave, extra, rawTiles);
 
   return {
     node,
@@ -42,9 +55,11 @@ export function createVitalsPanel() {
         extra.textContent = '僅在展示模式傳送；一般模式平台不會收到生理數據';
         path.setAttribute('d', '');
         wave.setAttribute('aria-label', '脈搏波形：無資料');
+        RAW.forEach((r) => { r.v.textContent = '—'; });
         return;
       }
       node.dataset.quality = vitals.quality;
+      RAW.forEach((r) => { r.v.textContent = vitals[r.key] == null ? '—' : r.fmt(vitals[r.key]); });
       value.textContent = vitals.heart_rate_bpm == null ? '—' : Math.round(vitals.heart_rate_bpm);
       state.textContent = QUALITY_TEXT[vitals.quality] || vitals.quality;
       const parts = [];

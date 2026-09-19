@@ -102,7 +102,9 @@ def analyze(t: list, ir: list) -> dict:
     """t: sample times (s), ir: raw IR counts; both the same length, oldest first.
     Returns {"quality", "heart_rate_bpm", "rmssd_ms", "perfusion_index", "ir_dc", "autocorr"}."""
     result = {"quality": QUALITY_NO_CONTACT, "heart_rate_bpm": None, "rmssd_ms": None,
-              "perfusion_index": None, "ir_dc": None, "autocorr": None}
+              "perfusion_index": None, "ir_dc": None, "autocorr": None, "sample_hz": None}
+    if len(t) >= 2 and t[-1] > t[0]:
+        result["sample_hz"] = round((len(t) - 1) / (t[-1] - t[0]), 1)  # < 50 means samples are being lost
     if len(ir) < 10:
         return result
     dc = sum(ir) / len(ir)
