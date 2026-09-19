@@ -1,3 +1,16 @@
+> **2026-09-19 更正（以實測為準，見 `scripts/benchmark_npu.py`）**
+> 本文件下方「三個模型都是出廠 int8 量化」的說法是錯的：`/root/guardian_helmet/models/*.tflite` 是 **float32／float16** 模型，Ethos-U65 只能跑 int8，所以 Vela 對它們一個運算都搬不上 NPU（`models_npu/*_vela.tflite` 的 NPU 權重為 0，等於還是 CPU）。
+> 真正能上 NPU 的是 NXP GoPoint DMS demo 的量化版 `*_ptq.tflite`（同架構、同輸入尺寸），Vela 編譯後約 83% 權重在 NPU，放在 `/root/guardian_helmet/models_npu_ptq/`。
+>
+> | 模式（640×480，含前後處理） | 每幀 | FPS | 低角度影片偵測率 |
+> |---|---|---|---|
+> | float，全 CPU（main.py 的做法） | 100 ms | 10 | 142/150 |
+> | ptq，全 CPU | 178 ms | 5.6 | — |
+> | npu：三個模型全上 NPU | 31.5 ms | 31.7 | **2/150** |
+> | **hybrid：偵測 float/CPU ＋ 網格與虹膜 NPU（live 預設）** | 47 ms | 21 | 142/150 |
+>
+> 全 NPU 不能用的原因：量化後的人臉偵測信心分數只剩約三個值（0.08／0.50／0.92），由下往上拍的臉落在 0.50，過不了 `SCORE_THRESH=0.75`；而 0.50 與背景只差一個量化級距，不能靠降門檻解決。hybrid 與 float 的規則判斷一致率：閉眼 92–99%、哈欠 96.5–100%、低頭 100%（俯角來自偵測模型，完全相同）。
+
 # NXP DMS 模型解析（Layer A）
 
 ## 先講清楚命名，避免混淆

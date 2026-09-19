@@ -32,10 +32,10 @@ def _ensure_dms_on_path() -> None:
         sys.path.insert(0, GUARDIAN_HELMET_DMS_DIR)
 
 
-def build_dms_frame_source(img_size, delegate_path: str = ""):
+def build_dms_frame_source(img_size, delegate_path: str = "", model_set: str = "float"):
     """delegate_path: pass the Ethos-U65 delegate (e.g. /usr/lib/libethosu_delegate.so)
     for NPU-accelerated inference; empty string runs on CPU (fine for offline
     processing of recorded video/calibration clips)."""
     _ensure_dms_on_path()
     from analyze import DMSFrameAnalyzer  # noqa: E402 (import must follow sys.path insert)
-    return DMSFrameAnalyzer(img_size=img_size, delegate_path=delegate_path)
+    return DMSFrameAnalyzer(img_size=img_size, delegate_path=delegate_path, model_set=model_set)

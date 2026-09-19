@@ -231,9 +231,11 @@ def main() -> None:
     parser.add_argument("--mqtt-port", type=int, default=1883)
     parser.add_argument("--http", default="", metavar="URL", help="also/instead POST to the dashboard")
     parser.add_argument("--publish-hz", type=float, default=1.0)
-    parser.add_argument("--delegate", default="",
-                        help="TFLite delegate, e.g. /usr/lib/libethosu_delegate.so (needs the *_vela models)")
-    parser.add_argument("--max-inference-fps", type=float, default=15.0,
+    parser.add_argument("--model-set", default="hybrid", choices=["hybrid", "float", "ptq", "npu"],
+                        help="hybrid (default): float face detector on CPU + mesh/iris on the Ethos-U65 NPU, "
+                             "~21 fps. float: everything on CPU, ~10 fps. npu: all three quantized on the NPU — "
+                             "fastest, but its detector misses low-angle faces (see scripts/benchmark_npu.py)")
+    parser.add_argument("--max-inference-fps", type=float, default=20.0,
                         help="cap, so inference leaves CPU for capture + streaming; 0 = uncapped")
     parser.add_argument("--no-overlay", action="store_true",
                         help="stream the raw picture without the DMS face box / mesh / status text")
@@ -251,13 +253,22 @@ def main() -> None:
     if args.http:
         transports.append(HttpTransport(args.http))
     print(f"rider {args.rider_id}: publishing to {[t.name for t in transports] or 'NOWHERE'}; "
-          f"perclos window {args.perclos_window:.0f}s; delegate={args.delegate or 'CPU'}", flush=True)
+          f"perclos window {args.perclos_window:.0f}s", flush=True)
 
     # The detector works on the frame padded to a square (see analyze.py), so its
     # img_size is that square — NOT (height, width). Passing the raw frame size
     # squashes every box vertically and wrecks alignment.
     side = max(args.height, args.width)
-    analyzer = build_dms_frame_source(img_size=(side, side), delegate_path=args.delegate)
+    try:
+        analyzer = build_dms_frame_source(img_size=(side, side), model_set=args.model_set)
+        print(f"perception: model set '{args.model_set}'"
+              + (" (mesh + iris on the Ethos-U65 NPU)" if args.model_set == "hybrid" else ""), flush=True)
+    except Exception as exc:
+        # NPU busy / delegate or model missing: a slower rider beats no rider.
+        print(f"perception: model set '{args.model_set}' failed to load ({exc!r}); falling back to float on CPU",
+              flush=True)
+        args.model_set = "float"
+        analyzer = build_dms_frame_source(img_size=(side, side), model_set="float")
     live, stop = LiveState(), threading.Event()
     if not args.no_overlay:
         stream_state.annotate = lambda frame: overlay.draw(frame, live.detection, time.time())

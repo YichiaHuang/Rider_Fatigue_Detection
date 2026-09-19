@@ -75,10 +75,11 @@ rider/                  板子端
   frame_source.py       唯一開攝影機的地方（推論與串流共用）
   stream_server.py      MJPEG 串流＋一般／展示模式（自動調整畫質）
   overlay.py            展示串流上的 DMS 疊圖（人臉框、網格、狀態文字）
+  （推論預設 `--model-set hybrid`：人臉偵測跑 CPU、468 點網格與虹膜跑 Ethos-U65 NPU，實測約 21 FPS；`float` 為全 CPU 約 10 FPS。依據見 docs/nxp_dms_models.md）
   stage_a_scoring.py    規則式評分（按時間累積，與幀率無關）
   layer_b_features.py   PERCLOS（按時間加權、有暖機）等特徵
   guardian_helmet_bridge.py  接 H1 的 DMS 推論
-scripts/                板子端的冒煙測試、校準錄製、離線分析
+scripts/                板子端的冒煙測試、校準錄製、離線分析；benchmark_npu.py 為 CPU／NPU 實測
 guardian_helmet_dms/    H1 的 NXP DMS 推論程式（備份，模型檔不在 repo）
 legacy/platform_streamlit/  舊版 Streamlit 平台端，已被 server/ + web/ 取代
 tests/                  單元測試＋假 broker＋HTTP 端到端

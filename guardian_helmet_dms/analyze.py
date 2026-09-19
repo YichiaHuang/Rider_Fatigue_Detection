@@ -27,6 +27,30 @@ DETECT_MODEL = "face_detection_short_range.tflite"
 LANDMARK_MODEL = "face_landmark.tflite"
 EYE_MODEL = "iris_landmark.tflite"
 
+# Model sets. "float" is what main.py uses: float32/float16 MediaPipe models.
+# Those can NOT run on the Ethos-U65 — the NPU only executes int8 ops, and Vela
+# offloads nothing from them (models_npu/*_vela.tflite have 0 NPU weights).
+# "ptq" is NXP's own post-training-quantized set from the GoPoint DMS demo:
+# same architectures, same input sizes, float I/O with int8 inside. "npu" is
+# that set compiled by Vela for ethos-u65-256 (~83 % of weights on the NPU)
+# and must be loaded with the Ethos-U delegate.
+#
+# "hybrid" is the one to use live: float face DETECTOR on the CPU + quantized
+# mesh/iris on the NPU. Measured on this board (scripts/benchmark_npu.py):
+# the quantized detector's confidence collapses to ~3 levels (0.08/0.50/0.92),
+# and low-angle faces — our actual mounting angle — land on 0.50, below
+# SCORE_THRESH: 2/150 frames detected vs 142/150 for the float detector. The
+# detector is the small model; the two heavy ones still run on the NPU.
+NPU_MODEL_PATH = pathlib.Path(__file__).resolve().parent.parent / "models_npu_ptq"
+ETHOSU_DELEGATE = "/usr/lib/libethosu_delegate.so"
+MODEL_SETS = {
+    "float": (MODEL_PATH, DETECT_MODEL, LANDMARK_MODEL, EYE_MODEL),
+    "ptq": (NPU_MODEL_PATH, "face_detection_ptq.tflite", "face_landmark_ptq.tflite", "iris_landmark_ptq.tflite"),
+    "npu": (NPU_MODEL_PATH, "face_detection_ptq_vela.tflite", "face_landmark_ptq_vela.tflite",
+            "iris_landmark_ptq_vela.tflite"),
+    "hybrid": (NPU_MODEL_PATH, None, "face_landmark_ptq_vela.tflite", "iris_landmark_ptq_vela.tflite"),
+}
+
 
 def _safe_iris_ratio(left_eye_landmarks, right_eye_landmarks) -> float:
     """utils.get_iris_ratio divides by the right eye's width, which is 0 when
@@ -40,12 +64,23 @@ def _safe_iris_ratio(left_eye_landmarks, right_eye_landmarks) -> float:
 
 
 class DMSFrameAnalyzer:
-    def __init__(self, img_size, delegate_path: str = ""):
-        """img_size: (height, width) of the frames you'll pass to analyze()."""
-        self.face_detector = FaceDetector(model_path=str(MODEL_PATH / DETECT_MODEL),
-                                           delegate_path=delegate_path, img_size=img_size)
-        self.face_mesher = FaceMesher(model_path=str(MODEL_PATH / LANDMARK_MODEL), delegate_path=delegate_path)
-        self.eye_mesher = EyeMesher(model_path=str(MODEL_PATH / EYE_MODEL), delegate_path=delegate_path)
+    def __init__(self, img_size, delegate_path: str = "", model_set: str = "float"):
+        """img_size: (side, side) of the square-padded frame (max(h, w) twice).
+        model_set: "float" (CPU, default, = main.py), "ptq" (quantized, CPU) or
+        "npu" (quantized + Vela; the Ethos-U delegate is applied automatically) or
+        "hybrid" (float detector on CPU + mesh/iris on the NPU — use this one live)."""
+        model_dir, detect, landmark, eye = MODEL_SETS[model_set]
+        if model_set in ("npu", "hybrid") and not delegate_path:
+            delegate_path = ETHOSU_DELEGATE
+        self.model_set = model_set
+        if detect is None:  # hybrid: float detector on the CPU, no delegate
+            self.face_detector = FaceDetector(model_path=str(MODEL_PATH / DETECT_MODEL),
+                                               delegate_path="", img_size=img_size)
+        else:
+            self.face_detector = FaceDetector(model_path=str(model_dir / detect),
+                                               delegate_path=delegate_path, img_size=img_size)
+        self.face_mesher = FaceMesher(model_path=str(model_dir / landmark), delegate_path=delegate_path)
+        self.eye_mesher = EyeMesher(model_path=str(model_dir / eye), delegate_path=delegate_path)
         # Geometry of the most recent analyze() call, in the ORIGINAL frame's pixel
         # coordinates (padding and the detector's mirror flip undone), for drawing
         # a main.py-style overlay on a live stream. None when no face was found.
