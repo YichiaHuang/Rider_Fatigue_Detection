@@ -1,0 +1,86 @@
+/* Page skeleton only: where regions sit. Component looks live in components.css. */
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; }
+
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: 16px;
+  display: grid;
+  gap: var(--gap);
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.app-header .spacer { flex: 1; }
+
+.main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+.primary-column, .fleet-column { display: grid; gap: var(--gap); min-width: 0; }
+
+.primary-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--gap);
+}
+
+.fleet-grid { display: grid; gap: var(--gap); }
+
+@media (max-width: 1100px) {
+  .main-grid { grid-template-columns: minmax(0, 1fr); }
+  .fleet-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .primary-top { grid-template-columns: minmax(0, 1fr); }
+  .fleet-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------- video focus mode ----------
+   Same DOM, different grid: the wrappers dissolve (display: contents) so every
+   card becomes a direct grid item, the camera takes the big area and the rest
+   of the dashboard shrinks into a side column + a bottom row. */
+.app.video-focus { max-width: none; padding: 12px; gap: 12px; }
+.app.video-focus .main-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-areas:
+    "video video readout"
+    "video video fleet"
+    "chart chart events";
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+}
+.app.video-focus .primary-column,
+.app.video-focus .primary-top { display: contents; }
+.app.video-focus #video { grid-area: video; }
+.app.video-focus #primary-readout { grid-area: readout; }
+.app.video-focus .fleet-column { grid-area: fleet; align-content: start; gap: 8px; }
+.app.video-focus #primary-chart { grid-area: chart; }
+.app.video-focus #events { grid-area: events; }
+.app.video-focus .fleet-grid { gap: 8px; }
+
+@media (max-width: 1100px) {
+  .app.video-focus .main-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "video" "readout" "fleet" "chart" "events";
+  }
+}

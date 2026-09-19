@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>騎手疲勞監控</title>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header" id="header"></header>
+
+    <main class="main-grid">
+      <div class="primary-column">
+        <div class="primary-top">
+          <section class="card" id="video" aria-label="即時攝影機畫面"></section>
+          <section class="card" id="primary-readout" aria-label="真實騎手目前狀態"></section>
+        </div>
+        <section class="card" id="primary-chart"></section>
+        <section class="card" id="events"></section>
+      </div>
+
+      <aside class="fleet-column" aria-label="其他騎手">
+        <p class="fleet-hint">點選任一位騎手可放大檢視</p>
+        <div class="fleet-grid" id="fleet"></div>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+paho-mqtt>=1.6,<2
+streamlit
+plotly
+pandas
+opencv-python-headless
+numpy
+
+# Stage B training only (scripts/train_stage_b.py) - NOT needed for rider/
+# or platform/. Couldn't be installed in the dev sandbox this was written in
+# (8.2GB disk, ran out of space twice - see SESSION_LOG_2026-09-16.md).
+# Install on whichever machine actually runs the training.
+tensorflow
+ethos-u-vela

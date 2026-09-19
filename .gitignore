@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+*.log
+# 測試影片、照片含隊友的臉；模型檔由 NXP 提供，不放進 repo
+*.avi
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.tflite
