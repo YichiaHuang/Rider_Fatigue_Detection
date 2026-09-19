@@ -123,6 +123,7 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
     perclos_tracker = PerclosTracker(window_seconds=args.perclos_window)
     scorer = StageAScorer(StageAConfig())
     last_seq, frames, faces = 0, 0, 0
+    errors, last_error_log = 0, 0.0
     window_start, window_frames = time.time(), 0
     min_interval = 1.0 / args.max_inference_fps if args.max_inference_fps else 0.0
 
@@ -132,7 +133,17 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
         if frame is None:
             continue
         last_seq = seq
-        features = analyzer.analyze(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        try:
+            features = analyzer.analyze(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        except Exception as exc:
+            # One degenerate frame (collapsed eye crop, NaN landmarks …) must not
+            # take the rider offline. Treat it as "no face in this frame": the
+            # health message then reports it honestly if it keeps happening.
+            features = None
+            errors += 1
+            if time.time() - last_error_log >= 5.0:
+                last_error_log = time.time()
+                print(f"[{args.rider_id}] analyze() failed ({errors} so far): {exc!r}", flush=True)
         frames += 1
         window_frames += 1
 

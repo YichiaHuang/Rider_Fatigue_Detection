@@ -28,6 +28,17 @@ LANDMARK_MODEL = "face_landmark.tflite"
 EYE_MODEL = "iris_landmark.tflite"
 
 
+def _safe_iris_ratio(left_eye_landmarks, right_eye_landmarks) -> float:
+    """utils.get_iris_ratio divides by the right eye's width, which is 0 when
+    that eye's landmarks collapse (tiny/occluded eye crop). 1.0 = "no left/right
+    evidence", so the Face: Left/Right overlay test simply doesn't fire."""
+    try:
+        ratio = float(get_iris_ratio(left_eye_landmarks, right_eye_landmarks))
+    except ZeroDivisionError:
+        return 1.0
+    return ratio if np.isfinite(ratio) else 1.0
+
+
 class DMSFrameAnalyzer:
     def __init__(self, img_size, delegate_path: str = ""):
         """img_size: (height, width) of the frames you'll pass to analyze()."""
@@ -111,7 +122,7 @@ class DMSFrameAnalyzer:
         return {
             "yaw_deg": float(yaw),
             "roll_deg": float(roll),
-            "iris_ratio": float(get_iris_ratio(left_eye_landmarks, right_eye_landmarks)),
+            "iris_ratio": _safe_iris_ratio(left_eye_landmarks, right_eye_landmarks),
             "mar": float(mouth_ratio),
             "ear": float((left_eye_ratio + right_eye_ratio) / 2.0),
             "left_eye_ratio": float(left_eye_ratio),
