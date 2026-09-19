@@ -6,14 +6,13 @@ server/__main__.py. Nothing in core/ or api/ needs to change.
 """
 from __future__ import annotations
 
-from ..core.models import PayloadError, parse_detail, parse_health, parse_score, parse_vitals
+from ..core.models import PayloadError, parse_detail, parse_health, parse_score
 from ..core.store import RiderStore
 
 KIND_SCORE = "fatigue_score"
 KIND_DETAIL = "demo_state"
 KIND_HEALTH = "health"
-KIND_VITALS = "vitals"
-KINDS = (KIND_SCORE, KIND_DETAIL, KIND_HEALTH, KIND_VITALS)
+KINDS = (KIND_SCORE, KIND_DETAIL, KIND_HEALTH)
 
 
 class Source:
@@ -43,8 +42,6 @@ def ingest_message(store: RiderStore, rider_id: str, kind: str, payload: dict) -
         accepted = store.ingest_detail(parse_detail(rider_id, payload))
     elif kind == KIND_HEALTH:
         accepted = store.ingest_health(parse_health(rider_id, payload))
-    elif kind == KIND_VITALS:
-        accepted = store.ingest_vitals(parse_vitals(rider_id, payload))
     else:
         raise PayloadError(f"unknown message kind '{kind}', expected one of {KINDS}")
     if not accepted:

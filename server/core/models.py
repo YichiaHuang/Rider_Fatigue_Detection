@@ -30,8 +30,6 @@ class DetailSample:
     perclos: "float | None" = None
     head_pitch_deg: "float | None" = None
     inference_fps: "float | None" = None
-    eyes_closed: "bool | None" = None
-    yawning: "bool | None" = None
     reasons: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
@@ -48,35 +46,6 @@ class HealthSample:
     rider_id: str
     timestamp: float
     perception: str  # one of PERCEPTION_VALUES
-
-
-VITALS_QUALITIES = ("no_contact", "settling", "weak", "good", "holding")
-VITALS_QUALITIES_WITH_RATE = ("good", "holding")   # holding = the board's tracker is riding out a brief dropout
-MAX_WAVEFORM_POINTS = 400
-
-
-@dataclass(frozen=True)
-class VitalsSample:
-    """Demo-mode only: PPG heart rate. heart_rate_bpm is None unless the board
-    judged the signal good — the platform never invents or carries forward a rate."""
-    rider_id: str
-    timestamp: float
-    quality: str
-    heart_rate_bpm: "float | None" = None
-    rmssd_ms: "float | None" = None
-    perfusion_index: "float | None" = None
-    ir_dc: "float | None" = None        # raw IR level: ~1-2k bare sensor, >50k on skin
-    autocorr: "float | None" = None     # periodicity 0-1; the board needs >= 0.3 to trust a rate
-    sample_hz: "float | None" = None    # samples actually received per second (nominal 50)
-    spectral_peak: "float | None" = None  # share of pulse-band energy at the strongest line (>= 0.45 needed)
-    held_sec: "float | None" = None     # quality "holding": how old the shown rate is
-    waveform: tuple = field(default_factory=tuple)
-
-    def to_dict(self) -> dict:
-        d = asdict(self)
-        d.pop("rider_id")
-        d["waveform"] = list(self.waveform)
-        return d
 
 
 class PayloadError(ValueError):
@@ -102,9 +71,6 @@ def parse_detail(rider_id: str, payload: dict) -> DetailSample:
     reasons = payload.get("reasons") or ()
     if not isinstance(reasons, (list, tuple)):
         raise PayloadError("'reasons' must be a list")
-    for flag in ("eyes_closed", "yawning"):
-        if payload.get(flag) is not None and not isinstance(payload[flag], bool):
-            raise PayloadError(f"'{flag}' must be a boolean")
     return DetailSample(
         rider_id=rider_id,
         timestamp=_number(payload, "timestamp"),
@@ -113,7 +79,6 @@ def parse_detail(rider_id: str, payload: dict) -> DetailSample:
         perclos=_number(payload, "perclos", required=False),
         head_pitch_deg=_number(payload, "head_pitch_deg", required=False),
         inference_fps=_number(payload, "inference_fps", required=False),
-        eyes_closed=payload.get("eyes_closed"), yawning=payload.get("yawning"),
         reasons=tuple(str(r) for r in reasons),
     )
 
@@ -123,27 +88,3 @@ def parse_health(rider_id: str, payload: dict) -> HealthSample:
     if perception not in PERCEPTION_VALUES:
         raise PayloadError(f"'perception' must be one of {PERCEPTION_VALUES}, got {perception!r}")
     return HealthSample(rider_id, _number(payload, "timestamp"), perception)
-
-
-def parse_vitals(rider_id: str, payload: dict) -> VitalsSample:
-    quality = payload.get("quality")
-    if quality not in VITALS_QUALITIES:
-        raise PayloadError(f"'quality' must be one of {VITALS_QUALITIES}, got {quality!r}")
-    waveform = payload.get("waveform") or ()
-    if not isinstance(waveform, (list, tuple)) or len(waveform) > MAX_WAVEFORM_POINTS or \
-            any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in waveform):
-        raise PayloadError(f"'waveform' must be a list of at most {MAX_WAVEFORM_POINTS} numbers")
-    rate = _number(payload, "heart_rate_bpm", required=False)
-    if rate is not None and not 25.0 <= rate <= 250.0:
-        raise PayloadError(f"'heart_rate_bpm' {rate} is outside 25-250")
-    return VitalsSample(
-        rider_id=rider_id, timestamp=_number(payload, "timestamp"), quality=quality,
-        heart_rate_bpm=rate if quality in VITALS_QUALITIES_WITH_RATE else None,
-        rmssd_ms=_number(payload, "rmssd_ms", required=False),
-        perfusion_index=_number(payload, "perfusion_index", required=False),
-        ir_dc=_number(payload, "ir_dc", required=False),
-        autocorr=_number(payload, "autocorr", required=False),
-        sample_hz=_number(payload, "sample_hz", required=False),
-        spectral_peak=_number(payload, "spectral_peak", required=False),
-        held_sec=_number(payload, "held_sec", required=False),
-        waveform=tuple(float(v) for v in waveform))

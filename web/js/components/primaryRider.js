@@ -3,7 +3,6 @@
 import { REASON_TEXT, SOURCE_TEXT, el, fmtAge, fmtClock, fmtNum, fmtScore, unknownReason } from '../utils/format.js';
 import { createLineChart } from './lineChart.js';
 import { createStatusBadge } from './statusBadge.js';
-import { createVitalsPanel } from './vitalsPanel.js';
 
 const TILES = [
   { key: 'ear', label: 'EAR 眼睛開合', digits: 2, hint: '越小越閉' },
@@ -29,8 +28,6 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
   });
   const reasons = el('div', { class: 'reasons' });
   const detailNote = el('div', { class: 'card-sub' });
-  const dmsState = el('div', { class: 'card-sub', text: 'DMS：等待裝置判定' });
-  const vitals = createVitalsPanel();
 
   readoutMount.classList.add('readout');
   readoutMount.append(
@@ -38,7 +35,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
     hero, el('div', {}, badge.node), note,
     el('div', { class: 'tiles' }, tileNodes.map((t) => t.node)),
     el('div', {}, el('div', { class: 'card-sub', text: '本次加分原因' }), reasons),
-    dmsState, detailNote, vitals.node);
+    detailNote);
 
   // ---- chart + table twin ----
   const chartBox = el('div');
@@ -77,7 +74,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
       name.textContent = rider.name;
       tag.textContent = SOURCE_TEXT[rider.source] || rider.source;
       tag.dataset.source = rider.source;
-      value.textContent = !unknown && rider.link === 'online' ? fmtScore(rider.score) : '—';
+      value.textContent = fmtScore(rider.score);
       hero.dataset.dim = String(unknown);
       badge.update(rider.status);
       note.textContent = unknown
@@ -85,9 +82,6 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
         : `更新於 ${fmtAge(rider.age_sec)}${rider.dispatch === 'paused' ? ` · 需降到 ${config.resume_threshold} 以下才恢復` : ''}`;
 
       const d = rider.detail;
-      dmsState.textContent = d && rider.status !== 'unknown'
-        ? `板上 DMS 判定：${d.eyes_closed == null ? '閉眼未知' : d.eyes_closed ? '雙眼閉合' : '雙眼未閉合'} · ${d.yawning == null ? '嘴部未知' : d.yawning ? '嘴部張開' : '嘴部未達門檻'}`
-        : '板上 DMS 判定：等待有效人臉與即時資料';
       tileNodes.forEach((t) => { t.v.textContent = d ? fmtNum(d[t.key], t.digits) : '—'; });
       reasons.replaceChildren(...(d && d.reasons.length
         ? d.reasons.map((r) => el('span', { class: 'reason', text: REASON_TEXT[r] || r }))
@@ -96,7 +90,6 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
         ? `特徵細節僅在展示模式傳送${d.inference_fps != null ? ` · 推論 ${fmtNum(d.inference_fps, 1)} FPS` : ''}`
         : '一般模式不傳送特徵細節，平台只有分數';
 
-      vitals.update(rider.vitals);
       chart.update(rider.history, { dim: unknown });
       if (!tableWrap.hidden) renderTable(rider.history);
       lastHistory = rider.history;

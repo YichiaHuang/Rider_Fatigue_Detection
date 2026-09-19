@@ -4,7 +4,7 @@ import unittest
 from server.config import Config
 from server.core.circuit_breaker import DISPATCH_NORMAL, DISPATCH_PAUSED, CircuitBreaker
 from server.core.models import (PERCEPTION_NO_FACE, PERCEPTION_OK, DetailSample, HealthSample, PayloadError,
-                                ScoreSample, VitalsSample, parse_detail, parse_health, parse_score, parse_vitals)
+                                ScoreSample, parse_detail, parse_health, parse_score)
 from server.core.store import RiderStore
 
 
@@ -93,13 +93,6 @@ class StoreTest(unittest.TestCase):
         self.store.tick()
         self.assertIsNone(self.rider()["detail"])
 
-    def test_vitals_expire_like_details(self):
-        self.store.ingest_vitals(VitalsSample("rider-01", self.clock.now, "good", heart_rate_bpm=71.5))
-        self.assertEqual(self.rider()["vitals"]["heart_rate_bpm"], 71.5)
-        self.clock.now += 6
-        self.store.tick()
-        self.assertIsNone(self.rider()["vitals"], "a stale heart rate must not stay on screen")
-
     def test_history_window_and_unknown_rider(self):
         for i in range(5):
             self.store.ingest_score(ScoreSample("rider-01", self.clock.now, float(i)))
@@ -140,17 +133,6 @@ class PayloadTest(unittest.TestCase):
     def test_detail_fields_optional(self):
         d = parse_detail("r", {"timestamp": 1, "ear": 0.2, "reasons": ["yawn"]})
         self.assertEqual((d.ear, d.mar, d.reasons), (0.2, None, ("yawn",)))
-
-    def test_vitals_rate_only_when_good(self):
-        good = parse_vitals("r", {"timestamp": 1, "quality": "good", "heart_rate_bpm": 72, "waveform": [0, 0.5, -1]})
-        self.assertEqual((good.heart_rate_bpm, good.waveform), (72.0, (0.0, 0.5, -1.0)))
-        weak = parse_vitals("r", {"timestamp": 1, "quality": "weak", "heart_rate_bpm": 72})
-        self.assertIsNone(weak.heart_rate_bpm, "a rate sent with a non-good quality is dropped, not shown")
-        for bad in ({"timestamp": 1, "quality": "great"}, {"timestamp": 1, "quality": "good", "heart_rate_bpm": 400},
-                    {"timestamp": 1, "quality": "good", "waveform": ["x"]},
-                    {"timestamp": 1, "quality": "good", "waveform": [0] * 401}):
-            with self.assertRaises(PayloadError):
-                parse_vitals("r", bad)
 
     def test_health_enum(self):
         self.assertEqual(parse_health("r", {"timestamp": 1, "perception": "ok"}).perception, "ok")

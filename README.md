@@ -33,26 +33,6 @@ BOARD=10.199.29.167 tools/connect_board.sh                 # 板子和筆電在�
 
 **畫面操作**：攝影機面板右上角的「放大畫面」會把影像放到最大、其餘面板縮到右側（Esc 還原；投影用可在網址加 `?focus=1&theme=dark`）。展示模式的影像會疊上 DMS 的人臉框、468 點網格、眼睛輪廓和 Yawning／Eye／Face 狀態，沒抓到臉時顯示紅色 NO FACE，方便調鏡頭角度；不想疊圖就在板子端加 `--no-overlay`。
 
-### 目前的評分設定（板內 NXP DMS 定義 + Stage A 時間累積）
-
-| 規則 | 條件 | 加分 | 啟動參數 |
-|---|---|---|---|
-| 嘴巴張開 | DMS 的 MAR 由下往上超過 **0.3**；兩次事件至少隔 **1 秒**；持續張著只算一次 | +3／次 | `--mar-threshold` `--yawn-cooldown` |
-| 閉眼比例 | DMS 判定左右眼比例**都低於 0.2** 才計為閉眼；過去 30 秒 PERCLOS 超過 **10%** | +2／秒 | `--perclos-threshold` `--perclos-window` |
-| 持續低頭 | 目前只顯示、不計分；攝影機角度校準後可啟用 | 啟用後 +3／2 秒 | `--score-head-down` |
-| 衰減 | 沒有規則觸發時 | **−0.3／秒** | `--decay-per-sec` |
-
-分數上限 30；平台端 15 暫停新單、8 恢復（`server/config.py`）。臉轉向側面超過 25°、或偵測不到臉時，分數凍結（不加也不減）。
-嘴部與眼部二元判定採板上 `/root/guardian_helmet/dms/main.py` 的原始門檻。模型本身輸出特徵，疲勞分數仍由 Stage A 的持續時間和加減分規則計算。
-
-```sh
-sh tools/start_board.sh --demo --criteria dms
-```
-
-### 心率（PPG，MAX30102）
-
-接在板子的 `/dev/i2c-0`（0x57），需要 `vexp-3v3` 服務供電；live runner 會自動偵測，沒有感測器也照常運作。心率**只在展示模式**送到平台、**只顯示不計分**。判定方式與診斷欄位見 `docs/API.md`；戴上後約 10–15 秒鎖定，短暫晃動時沿用剛才的數值最多 10 秒。live runner 執行時不要同時跑 `/root/sensors/sensor_test`（兩邊會搶感測器資料）。
-
 沒有板子時想手動測真實資料路徑：
 
 ```sh
@@ -95,8 +75,6 @@ rider/                  板子端
   frame_source.py       唯一開攝影機的地方（推論與串流共用）
   stream_server.py      MJPEG 串流＋一般／展示模式（自動調整畫質）
   overlay.py            展示串流上的 DMS 疊圖（人臉框、網格、狀態文字）
-  ppg_reader.py         MAX30102 心率感測器讀取（暫存器設定沿用 H2 的 sensor_test.c）
-  ppg_dsp.py            心率／HRV 訊號處理（純 Python；訊號不可靠時不回報數字）
   （推論預設 `--model-set hybrid`：人臉偵測跑 CPU、468 點網格與虹膜跑 Ethos-U65 NPU，實測約 21 FPS；`float` 為全 CPU 約 10 FPS。依據見 docs/nxp_dms_models.md）
   stage_a_scoring.py    規則式評分（按時間累積，與幀率無關）
   layer_b_features.py   PERCLOS（按時間加權、有暖機）等特徵

@@ -39,7 +39,7 @@ export function createRiderCard(config, { onSelect }) {
       name.textContent = rider.name;
       tag.textContent = SOURCE_TEXT[rider.source] || rider.source;
       tag.dataset.source = rider.source;
-      score.textContent = !unknown && rider.link === 'online' ? fmtScore(rider.score) : '—';
+      score.textContent = fmtScore(rider.score);
       badge.update(rider.status);
       age.textContent = unknown ? unknownReason(rider).split('，')[0] : fmtAge(rider.age_sec);
       chart.update(rider.history, { dim: unknown });

@@ -11,7 +11,6 @@ async function getJson(path) {
 
 export const api = {
   config: () => getJson('/api/config'),
-  sources: () => getJson('/api/sources'),
   state: (historySeconds) => getJson(`/api/state?history=${historySeconds}`),
   // Every board call is per rider: each board runs its own stream server.
   boardStatus: (riderId) => getJson(`/api/board/${encodeURIComponent(riderId)}/status`),

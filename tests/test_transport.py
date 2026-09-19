@@ -100,7 +100,7 @@ class MqttSourceTest(unittest.TestCase):
         try:
             self.assertTrue(broker.ready.wait(3.0), "client never subscribed")
             self.assertEqual(sorted(broker.subscriptions),
-                             ["riders/+/demo_state", "riders/+/fatigue_score", "riders/+/health", "riders/+/vitals"])
+                             ["riders/+/demo_state", "riders/+/fatigue_score", "riders/+/health"])
             now = time.time()
             broker.push("riders/rider-01/fatigue_score", {"timestamp": now, "score": 16.5})
             broker.push("riders/rider-01/health", {"timestamp": now, "perception": "ok"})

@@ -49,7 +49,7 @@ def build_landmarks(eyes_open: bool, mouth_open: bool):
 # scale differs from the DMS pipeline's (closed mouth ~0.2 here vs ~0.05 live).
 # StageAConfig's default MAR line (0.1) is tuned for the DMS scale, so this test
 # pins the generic-scale value instead of inheriting it.
-GENERIC_SCALE = dict(mar_yawn_threshold=0.6)
+GENERIC_SCALE = dict(mar_yawn_threshold=0.6, score_head_down=True)  # this test checks IMU-confirmed head drop
 
 
 def run():
