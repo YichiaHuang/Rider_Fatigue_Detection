@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rider"))
 from stage_a_scoring import StageAConfig, StageAScorer  # noqa: E402
+from layer_b_features import PerclosTracker  # noqa: E402
 
 CLOSED = dict(ear=0.10, mar=0.05, head_pitch_deg=2.0, perclos=0.40)
 NORMAL = dict(ear=0.30, mar=0.05, head_pitch_deg=2.0, perclos=0.02)
@@ -68,15 +69,15 @@ if __name__ == "__main__":
 
 
 class DemoTuningTest(unittest.TestCase):
-    """2026-09-19 team tuning: MAR 0.1, 1 s cooldown, PERCLOS 0.10."""
+    """Stage A defaults use tuned MAR 0.4; the runner selects DMS MAR 0.3."""
 
     def test_mouth_events_one_second_apart_each_score(self):
         scorer, total = StageAScorer(StageAConfig()), 0.0
-        # mouth opens (0.15) for 0.4 s, closes, and again 1.2 s after the first opening
+        # mouth opens above the DMS 0.3 boundary twice, 1.2 s apart
         for i in range(60):
             t = i / 20.0
             opened = (0.5 <= t < 0.9) or (1.7 <= t < 2.1)
-            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.15 if opened else 0.05))["added"]
+            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.45 if opened else 0.05))["added"]
         self.assertEqual(total, 6.0)
 
     def test_reopening_within_the_cooldown_does_not_score_twice(self):
@@ -84,13 +85,27 @@ class DemoTuningTest(unittest.TestCase):
         for i in range(40):
             t = i / 20.0
             opened = (0.5 <= t < 0.7) or (1.0 <= t < 1.2)      # second opening only 0.5 s later
-            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.15 if opened else 0.05))["added"]
+            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.45 if opened else 0.05))["added"]
         self.assertEqual(total, 3.0)
 
     def test_held_open_mouth_scores_once(self):
         scorer = StageAScorer(StageAConfig())
         total = sum(scorer.update(timestamp=i / 20.0, **dict(NORMAL, mar=0.5))["added"] for i in range(100))
         self.assertEqual(total, 3.0, "edge-triggered: 5 s of open mouth is one event, not five")
+
+    def test_talking_below_dms_mouth_threshold_does_not_score(self):
+        scorer = StageAScorer(StageAConfig())
+        result = scorer.update(timestamp=1.0, **dict(NORMAL, mar=0.15))
+        self.assertEqual(result["score"], 0.0)
+
+    def test_dms_requires_both_eyes_closed_for_perclos(self):
+        tracker = PerclosTracker(window_seconds=30)
+        for t in range(8):
+            ratio = tracker.update(float(t), ear=0.1, closed=False)
+        self.assertEqual(ratio, 0.0, "one closed eye must not count as DMS eyes_closed")
+        for t in range(8, 16):
+            ratio = tracker.update(float(t), ear=0.1, closed=True)
+        self.assertGreater(ratio, 0.4)
 
     def test_perclos_between_old_and_new_threshold_now_accrues(self):
         scorer = StageAScorer(StageAConfig())

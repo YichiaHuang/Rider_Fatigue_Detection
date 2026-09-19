@@ -33,20 +33,20 @@ BOARD=10.199.29.167 tools/connect_board.sh                 # 板子和筆電在�
 
 **畫面操作**：攝影機面板右上角的「放大畫面」會把影像放到最大、其餘面板縮到右側（Esc 還原；投影用可在網址加 `?focus=1&theme=dark`）。展示模式的影像會疊上 DMS 的人臉框、468 點網格、眼睛輪廓和 Yawning／Eye／Face 狀態，沒抓到臉時顯示紅色 NO FACE，方便調鏡頭角度；不想疊圖就在板子端加 `--no-overlay`。
 
-### 目前的評分設定（Stage A，2026-09-19 展示用調校）
+### 目前的評分設定（板內 NXP DMS 定義 + Stage A 時間累積）
 
 | 規則 | 條件 | 加分 | 啟動參數 |
 |---|---|---|---|
-| 嘴巴張開 | MAR 由下往上超過 **0.1**；兩次事件至少隔 **1 秒**；持續張著只算一次 | +3／次 | `--mar-threshold` `--yawn-cooldown` |
-| 閉眼比例 | 過去 30 秒 PERCLOS 超過 **10%** | +2／秒 | `--perclos-threshold` `--perclos-window` |
-| 持續低頭 | 俯角 > 13° 超過 2 秒（沒有 IMU 交叉驗證時打六折） | +3／2 秒 | — |
+| 嘴巴張開 | DMS 的 MAR 由下往上超過 **0.3**；兩次事件至少隔 **1 秒**；持續張著只算一次 | +3／次 | `--mar-threshold` `--yawn-cooldown` |
+| 閉眼比例 | DMS 判定左右眼比例**都低於 0.2** 才計為閉眼；過去 30 秒 PERCLOS 超過 **10%** | +2／秒 | `--perclos-threshold` `--perclos-window` |
+| 持續低頭 | 目前只顯示、不計分；攝影機角度校準後可啟用 | 啟用後 +3／2 秒 | `--score-head-down` |
 | 衰減 | 沒有規則觸發時 | **−0.3／秒** | `--decay-per-sec` |
 
 分數上限 30；平台端 15 暫停新單、8 恢復（`server/config.py`）。臉轉向側面超過 25°、或偵測不到臉時，分數凍結（不加也不減）。
-MAR 0.1 偏低：實測靜止時 MAR 中位數 0.05、第 75 百分位 0.14，**講話也會觸發**；要保守一點可用 `--mar-threshold 0.15`～`0.2`。
+嘴部與眼部二元判定採板上 `/root/guardian_helmet/dms/main.py` 的原始門檻。模型本身輸出特徵，疲勞分數仍由 Stage A 的持續時間和加減分規則計算。
 
 ```sh
-sh tools/start_board.sh --demo --mar-threshold 0.15 --decay-per-sec 0.5    # 範例：現場微調不用改程式
+sh tools/start_board.sh --demo --criteria dms
 ```
 
 ### 心率（PPG，MAX30102）

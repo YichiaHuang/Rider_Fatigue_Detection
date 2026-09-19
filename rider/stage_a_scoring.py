@@ -54,15 +54,26 @@ class StageAConfig:
     # landmark picks and a different scale than layer_b_features.py's, so
     # these thresholds only make sense paired with the real pipeline's
     # output. Re-tune after Thursday's calibration recordings.
-    # 2026-09-19 (team decision, demo tuning): 0.3 -> 0.1 and cooldown 3 s -> 1 s, so
-    # a mouth-opening event is easy to show. Measured on the live camera the same
-    # day: resting MAR median 0.05, p75 0.14 — i.e. at 0.1 ordinary TALKING crosses
-    # the line too (37 % of sampled seconds). main.py's own yawn line is 0.3.
+    # 0.3 is main.py's own yawn line. It was tried at 0.1 on 2026-09-19 and
+    # reverted the same day: measured on the live camera, resting MAR has a
+    # median of 0.05 and a 75th percentile of 0.14, so at 0.1 ordinary talking
+    # scored (37 % of sampled seconds) — at 0.3 only real mouth-opening does
+    # (10 %). The 1 s cooldown from that tuning round is kept.
+    # Then raised to 0.4 (team decision, same day): a clearly open mouth, with some
+    # margin above main.py's 0.3 line; recorded yawns on this camera peak at 0.4-0.9.
     # Both are overridable at start-up: --mar-threshold / --yawn-cooldown.
-    mar_yawn_threshold: float = 0.1
+    mar_yawn_threshold: float = 0.4
     yawn_add: float = 3.0
     yawn_cooldown_sec: float = 1.0  # min gap between counted mouth-open events
 
+    # 2026-09-19 (team decision): head pose is DISPLAYED but not SCORED by default.
+    # Measured on the demo set-up: with the camera mounted low and the rider
+    # looking at a laptop, head pitch sat at a median of 34 deg (14 of 16 sampled
+    # seconds above the 13 deg line), so this rule fired almost continuously and
+    # drove the score by itself — it was measuring the camera mount, not fatigue.
+    # Re-enable with --score-head-down once the mount angle is fixed and the
+    # threshold is calibrated against it (ideally with the IMU cross-check).
+    score_head_down: bool = False
     head_pitch_threshold_deg: float = 13.0  # main.py: pitch < -13 -> "Down" (sign-flipped here, see analyze.py)
     head_sustained_sec: float = 2.0
     head_add: float = 5.0
@@ -142,7 +153,9 @@ class StageAScorer:
             head_weight = cfg.head_add
             head_reason = "head_drop"
 
-        if head_confirmed:
+        if not cfg.score_head_down:
+            self._head_drop_start = None
+        elif head_confirmed:
             if self._head_drop_start is None:
                 self._head_drop_start = timestamp
             elif timestamp - self._head_drop_start > cfg.head_sustained_sec:

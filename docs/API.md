@@ -31,7 +31,8 @@ Topic 格式 `riders/{rider_id}/{kind}`，payload 都是 JSON，QoS 0。第一�
 
 ```json
 {"timestamp": 1789746935.9, "ear": 0.19, "mar": 0.08, "perclos": 0.31,
- "head_pitch_deg": 9.5, "inference_fps": 12.1, "reasons": ["perclos", "yawn"]}
+ "head_pitch_deg": 9.5, "eyes_closed": true, "yawning": false,
+ "inference_fps": 12.1, "reasons": ["perclos", "yawn"]}
 ```
 
 `vitals`（MAX30102 PPG 心率，`rider/ppg_reader.py`）：

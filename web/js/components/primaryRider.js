@@ -29,6 +29,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
   });
   const reasons = el('div', { class: 'reasons' });
   const detailNote = el('div', { class: 'card-sub' });
+  const dmsState = el('div', { class: 'card-sub', text: 'DMS：等待裝置判定' });
   const vitals = createVitalsPanel();
 
   readoutMount.classList.add('readout');
@@ -37,7 +38,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
     hero, el('div', {}, badge.node), note,
     el('div', { class: 'tiles' }, tileNodes.map((t) => t.node)),
     el('div', {}, el('div', { class: 'card-sub', text: '本次加分原因' }), reasons),
-    detailNote, vitals.node);
+    dmsState, detailNote, vitals.node);
 
   // ---- chart + table twin ----
   const chartBox = el('div');
@@ -84,6 +85,9 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
         : `更新於 ${fmtAge(rider.age_sec)}${rider.dispatch === 'paused' ? ` · 需降到 ${config.resume_threshold} 以下才恢復` : ''}`;
 
       const d = rider.detail;
+      dmsState.textContent = d && rider.status !== 'unknown'
+        ? `板上 DMS 判定：${d.eyes_closed == null ? '閉眼未知' : d.eyes_closed ? '雙眼閉合' : '雙眼未閉合'} · ${d.yawning == null ? '嘴部未知' : d.yawning ? '嘴部張開' : '嘴部未達門檻'}`
+        : '板上 DMS 判定：等待有效人臉與即時資料';
       tileNodes.forEach((t) => { t.v.textContent = d ? fmtNum(d[t.key], t.digits) : '—'; });
       reasons.replaceChildren(...(d && d.reasons.length
         ? d.reasons.map((r) => el('span', { class: 'reason', text: REASON_TEXT[r] || r }))

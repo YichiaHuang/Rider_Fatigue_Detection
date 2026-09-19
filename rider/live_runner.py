@@ -51,6 +51,13 @@ NO_FACE_AFTER_SEC = 1.5      # a blink-length detection miss is not a fault
 # EAR 0.14 ("closed") for minutes and ran the score to the cap. Such frames are
 # treated like a gap in the data — neither closed nor open, no accrual, no decay.
 MAX_YAW_FOR_FEATURES_DEG = 25.0
+
+# --criteria dms: the per-frame lines NXP's own DMS demo draws its "Yawning" /
+# "Eye: Closed" labels with (guardian_helmet_dms/main.py). The DMS only labels
+# single frames — a blink is "Closed" — so the time logic on top (PERCLOS window,
+# yawn events, decay, pause/resume) stays Stage A's either way.
+DMS_EYE_CLOSED_RATIO = 0.2   # main.py: left_eye_ratio < 0.2 AND right_eye_ratio < 0.2
+DMS_YAWN_RATIO = 0.3         # main.py: mouth_ratio > 0.3
 NO_FRAME_AFTER_SEC = 2.0
 
 
@@ -126,11 +133,13 @@ class LiveState:
 
 
 def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, stop: threading.Event) -> None:
+    dms_criteria = args.criteria == "dms"
     perclos_tracker = PerclosTracker(window_seconds=args.perclos_window)
     scorer = StageAScorer(StageAConfig(mar_yawn_threshold=args.mar_threshold,
                                        yawn_cooldown_sec=args.yawn_cooldown,
                                        perclos_threshold=args.perclos_threshold,
-                                       decay_per_sec=args.decay_per_sec))
+                                       decay_per_sec=args.decay_per_sec,
+                                       score_head_down=args.score_head_down))
     last_seq, frames, faces = 0, 0, 0
     errors, last_error_log = 0, 0.0
     window_start, window_frames = time.time(), 0
@@ -175,10 +184,14 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
             faces += 1
             # frame_ts (capture time), not "now": scoring must follow when the
             # eyes were closed, not when inference happened to finish.
-            perclos = perclos_tracker.update(frame_ts, features["ear"])
+            closed = (features["left_eye_ratio"] < DMS_EYE_CLOSED_RATIO
+                      and features["right_eye_ratio"] < DMS_EYE_CLOSED_RATIO) if dms_criteria else None
+            perclos = perclos_tracker.update(frame_ts, features["ear"], closed)
             result = scorer.update(timestamp=frame_ts, ear=features["ear"], mar=features["mar"],
                                    head_pitch_deg=features["head_pitch_deg"], perclos=perclos)
             result.update(ear=features["ear"], mar=features["mar"], perclos=perclos,
+                          eyes_closed=closed if closed is not None else features["ear"] < 0.21,
+                          yawning=features["mar"] > args.mar_threshold,
                           head_pitch_deg=features["head_pitch_deg"], yaw_deg=features["yaw_deg"])
             detection = {"at": frame_ts, "geometry": analyzer.last_geometry, "features": features,
                          "score": result["score"], "perclos": perclos, "reasons": result["reasons"],
@@ -241,6 +254,7 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
                     "ear": None if result["ear"] is None else round(result["ear"], 3),
                     "mar": None if result["mar"] is None else round(result["mar"], 3),
                     "perclos": round(result["perclos"], 3),
+                    "eyes_closed": result.get("eyes_closed"), "yawning": result.get("yawning"),
                     "head_pitch_deg": round(result["head_pitch_deg"], 1),
                     "yaw_deg": round(result["yaw_deg"], 1),
                     "inference_fps": round(snap["inference_fps"], 1), "reasons": shown})
@@ -279,12 +293,20 @@ def main() -> None:
                         help="MAX30102 heart-rate sensor; auto = use it if it answers on the I2C bus")
     parser.add_argument("--i2c-bus", type=int, default=0)
     defaults = StageAConfig()
-    parser.add_argument("--mar-threshold", type=float, default=defaults.mar_yawn_threshold,
-                        help="mouth-open (yawn) event when MAR rises above this")
+    parser.add_argument("--criteria", choices=("tuned", "dms"), default="dms",
+                        help="per-frame eye/mouth lines: 'tuned' = this project's (mean eye ratio < 0.21, MAR > "
+                             f"{defaults.mar_yawn_threshold}); 'dms' = NXP DMS demo's own (both eye ratios < "
+                             f"{DMS_EYE_CLOSED_RATIO}, MAR > {DMS_YAWN_RATIO})")
+    parser.add_argument("--mar-threshold", type=float, default=None,
+                        help=f"mouth-open (yawn) event when MAR rises above this (default: {defaults.mar_yawn_threshold}, "
+                             f"or {DMS_YAWN_RATIO} with --criteria dms)")
     parser.add_argument("--yawn-cooldown", type=float, default=defaults.yawn_cooldown_sec,
                         help="seconds before another mouth-open event can score")
     parser.add_argument("--perclos-threshold", type=float, default=defaults.perclos_threshold,
                         help="eye-closure share of the window above which points accrue per second")
+    parser.add_argument("--score-head-down", action="store_true",
+                        help="count sustained head-down in the score (off by default: with a low camera mount "
+                             "the pitch reads high all the time; it is still shown on the overlay)")
     parser.add_argument("--decay-per-sec", type=float, default=defaults.decay_per_sec,
                         help="points the score loses per second while no rule is firing")
     parser.add_argument("--no-overlay", action="store_true",
@@ -292,6 +314,11 @@ def main() -> None:
     parser.add_argument("--perclos-window", type=float, default=30.0,
                         help="seconds. DEMO SETTING: 30 so eye closure shows within a demo; 60 for real use")
     args = parser.parse_args()
+    if args.mar_threshold is None:  # resolved here: the start-up banner and the overlay read it too
+        args.mar_threshold = DMS_YAWN_RATIO if args.criteria == "dms" else defaults.mar_yawn_threshold
+    print(f"criteria: {args.criteria} (eyes closed when "
+          + (f"BOTH eye ratios < {DMS_EYE_CLOSED_RATIO}" if args.criteria == "dms" else "mean eye ratio < 0.21")
+          + f"; yawn when MAR > {args.mar_threshold})", flush=True)
 
     source = LatestFrameSource(args.device, width=args.width, height=args.height, fps=args.capture_fps)
     source.start()
@@ -303,7 +330,8 @@ def main() -> None:
     if args.http:
         transports.append(HttpTransport(args.http))
     print(f"stage A: MAR>{args.mar_threshold} (+3, cooldown {args.yawn_cooldown}s), "
-          f"PERCLOS>{args.perclos_threshold} (+2/s), decay {args.decay_per_sec}/s", flush=True)
+          f"PERCLOS>{args.perclos_threshold} (+2/s), decay {args.decay_per_sec}/s, "
+          f"head-down {'SCORED' if args.score_head_down else 'shown only, not scored'}", flush=True)
     print(f"rider {args.rider_id}: publishing to {[t.name for t in transports] or 'NOWHERE'}; "
           f"perclos window {args.perclos_window:.0f}s", flush=True)
 

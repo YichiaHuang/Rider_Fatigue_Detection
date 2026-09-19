@@ -30,6 +30,8 @@ class DetailSample:
     perclos: "float | None" = None
     head_pitch_deg: "float | None" = None
     inference_fps: "float | None" = None
+    eyes_closed: "bool | None" = None
+    yawning: "bool | None" = None
     reasons: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
@@ -100,6 +102,9 @@ def parse_detail(rider_id: str, payload: dict) -> DetailSample:
     reasons = payload.get("reasons") or ()
     if not isinstance(reasons, (list, tuple)):
         raise PayloadError("'reasons' must be a list")
+    for flag in ("eyes_closed", "yawning"):
+        if payload.get(flag) is not None and not isinstance(payload[flag], bool):
+            raise PayloadError(f"'{flag}' must be a boolean")
     return DetailSample(
         rider_id=rider_id,
         timestamp=_number(payload, "timestamp"),
@@ -108,6 +113,7 @@ def parse_detail(rider_id: str, payload: dict) -> DetailSample:
         perclos=_number(payload, "perclos", required=False),
         head_pitch_deg=_number(payload, "head_pitch_deg", required=False),
         inference_fps=_number(payload, "inference_fps", required=False),
+        eyes_closed=payload.get("eyes_closed"), yawning=payload.get("yawning"),
         reasons=tuple(str(r) for r in reasons),
     )
 
