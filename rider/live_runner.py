@@ -157,7 +157,14 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
         if turned_away:
             faces += 1
             previous = live.result
-            live.set(last_face_at=frame_ts, frames=frames, faces=faces, detection={
+            # Keep publishing: the score is frozen on purpose, but it must carry a
+            # current timestamp, and the detail message must say WHY nothing is
+            # being measured instead of repeating the last frontal frame's EAR/MAR.
+            frozen = {"timestamp": frame_ts, "score": previous["score"] if previous else 0.0,
+                      "perclos": previous["perclos"] if previous else 0.0, "reasons": ["turned_away"],
+                      "ear": None, "mar": None, "head_pitch_deg": features["head_pitch_deg"],
+                      "yaw_deg": features["yaw_deg"]}
+            live.set(result=frozen, last_face_at=frame_ts, frames=frames, faces=faces, detection={
                 "at": frame_ts, "geometry": analyzer.last_geometry, "features": features, "turned_away": True,
                 "score": previous["score"] if previous else 0.0, "perclos": previous["perclos"] if previous else 0.0,
                 "reasons": [], "inference_fps": live.inference_fps})
@@ -220,12 +227,17 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
         if perception == PERCEPTION_OK and result is not None:
             send("fatigue_score", {"timestamp": result["timestamp"], "score": result["score"]})
             for reason in result["reasons"]:
-                recent_reasons[REASON_NAMES.get(reason, reason)] = now
+                if reason != "turned_away":
+                    recent_reasons[REASON_NAMES.get(reason, reason)] = now
             if stream_state.demo:  # details follow the same switch as the video
                 shown = sorted(r for r, t in recent_reasons.items() if now - t <= 2.0)
+                if "turned_away" in result["reasons"]:
+                    shown = ["turned_away"]
                 send("demo_state", {
-                    "timestamp": result["timestamp"], "ear": round(result["ear"], 3),
-                    "mar": round(result["mar"], 3), "perclos": round(result["perclos"], 3),
+                    "timestamp": result["timestamp"],
+                    "ear": None if result["ear"] is None else round(result["ear"], 3),
+                    "mar": None if result["mar"] is None else round(result["mar"], 3),
+                    "perclos": round(result["perclos"], 3),
                     "head_pitch_deg": round(result["head_pitch_deg"], 1),
                     "yaw_deg": round(result["yaw_deg"], 1),
                     "inference_fps": round(snap["inference_fps"], 1), "reasons": shown})

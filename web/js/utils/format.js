@@ -13,6 +13,7 @@ export const REASON_TEXT = {
   yawn: '打哈欠',
   head_down: '持續低頭',
   audio: '音訊異常',
+  turned_away: '臉轉向側面：眼睛／嘴巴暫不計分',
 };
 
 export const EVENT_TEXT = {

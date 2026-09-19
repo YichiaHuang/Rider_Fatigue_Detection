@@ -38,9 +38,17 @@ export function createHeader(mount) {
 
   return {
     update(state) {
+      // "Live" must mean the BOARD's data is arriving, not merely that this page
+      // can reach the laptop backend: a dead MQTT channel is reported here.
+      const mqtt = (state.sources || []).find((s) => s.name === 'mqtt');
       const c = CONNECTION[state.connection] || CONNECTION.connecting;
-      connText.textContent = c.text;
-      conn.dataset.state = c.state;
+      if (state.connection === 'live' && mqtt && !mqtt.connected) {
+        connText.textContent = '板子資料通道中斷（MQTT 未連線），畫面為舊資料';
+        conn.dataset.state = 'bad';
+      } else {
+        connText.textContent = c.text;
+        conn.dataset.state = c.state;
+      }
 
       const board = state.board;
       if (board.configured === false) {

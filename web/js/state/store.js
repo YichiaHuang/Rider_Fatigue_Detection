@@ -12,6 +12,7 @@ export function createStore() {
     events: [],          // newest first
     connection: 'connecting',  // connecting | live | lost
     board: { reachable: false },
+    sources: [],         // data-source health from the backend (is MQTT actually connected?)
   };
   const listeners = new Set();
   let scheduled = false;
@@ -39,6 +40,7 @@ export function createStore() {
     setConfig(config) { state.config = config; notify(); },
     setConnection(value) { if (state.connection !== value) { state.connection = value; notify(); } },
     setBoard(board) { state.board = board; notify(); },
+    setSources(sources) { state.sources = sources; notify(); },
 
     select(id) {
       if (state.selectedId === id) return;

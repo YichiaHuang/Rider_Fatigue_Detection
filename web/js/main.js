@@ -107,6 +107,11 @@ async function start() {
 
   pollBoard();
   setInterval(pollBoard, BOARD_POLL_MS);
+  const pollSources = async () => {
+    try { store.setSources((await api.sources()).sources); } catch (e) { /* backend down: the SSE pill says so */ }
+  };
+  pollSources();
+  setInterval(pollSources, 3000);
 
   // "updated N s ago" and the scrolling time axis keep moving between messages
   setInterval(() => {
