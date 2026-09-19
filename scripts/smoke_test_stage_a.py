@@ -21,7 +21,7 @@ HEAD_DROP_VISUAL_ONLY_IMU_DISAGREES = dict(ear=0.30, mar=0.05, head_pitch_deg=30
 
 
 def run_scenario(name, frames):
-    scorer = StageAScorer(StageAConfig())
+    scorer = StageAScorer(StageAConfig(score_head_down=True))  # these scenarios test the head rule itself
     breaker = DispatchCircuitBreaker(BreakerConfig())
     print(f"\n=== {name} ===")
     for t, features in frames:

@@ -98,3 +98,26 @@ class DemoTuningTest(unittest.TestCase):
             result = scorer.update(timestamp=float(i), **dict(NORMAL, perclos=0.12))
         self.assertEqual(result["reasons"], ["perclos"])
         self.assertAlmostEqual(result["score"], 8.0, delta=0.01)   # 2 points/s over 4 s
+
+
+class HeadRuleSwitchTest(unittest.TestCase):
+    HEAD_DOWN = dict(ear=0.30, mar=0.05, head_pitch_deg=34.0, perclos=0.02)   # what the low camera mount reads
+
+    def test_head_down_is_not_scored_by_default(self):
+        scorer = StageAScorer(StageAConfig())
+        for i in range(30):
+            result = scorer.update(timestamp=float(i), **self.HEAD_DOWN)
+        self.assertEqual((result["score"], result["reasons"]), (0.0, []))
+
+    def test_other_rules_unaffected_while_head_is_down(self):
+        scorer = StageAScorer(StageAConfig())
+        for i in range(1, 6):
+            result = scorer.update(timestamp=float(i), **dict(self.HEAD_DOWN, perclos=0.4))
+        self.assertEqual(result["reasons"], ["perclos"])
+        self.assertAlmostEqual(result["score"], 8.0, delta=0.01)
+
+    def test_can_be_switched_back_on(self):
+        scorer, seen = StageAScorer(StageAConfig(score_head_down=True)), set()
+        for i in range(10):
+            seen.update(scorer.update(timestamp=float(i), **self.HEAD_DOWN)["reasons"])
+        self.assertIn("head_drop_visual_only_no_imu", seen)

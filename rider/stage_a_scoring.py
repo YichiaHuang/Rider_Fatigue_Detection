@@ -63,6 +63,14 @@ class StageAConfig:
     yawn_add: float = 3.0
     yawn_cooldown_sec: float = 1.0  # min gap between counted mouth-open events
 
+    # 2026-09-19 (team decision): head pose is DISPLAYED but not SCORED by default.
+    # Measured on the demo set-up: with the camera mounted low and the rider
+    # looking at a laptop, head pitch sat at a median of 34 deg (14 of 16 sampled
+    # seconds above the 13 deg line), so this rule fired almost continuously and
+    # drove the score by itself — it was measuring the camera mount, not fatigue.
+    # Re-enable with --score-head-down once the mount angle is fixed and the
+    # threshold is calibrated against it (ideally with the IMU cross-check).
+    score_head_down: bool = False
     head_pitch_threshold_deg: float = 13.0  # main.py: pitch < -13 -> "Down" (sign-flipped here, see analyze.py)
     head_sustained_sec: float = 2.0
     head_add: float = 5.0
@@ -142,7 +150,9 @@ class StageAScorer:
             head_weight = cfg.head_add
             head_reason = "head_drop"
 
-        if head_confirmed:
+        if not cfg.score_head_down:
+            self._head_drop_start = None
+        elif head_confirmed:
             if self._head_drop_start is None:
                 self._head_drop_start = timestamp
             elif timestamp - self._head_drop_start > cfg.head_sustained_sec:
