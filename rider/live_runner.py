@@ -127,7 +127,9 @@ class LiveState:
 
 def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, stop: threading.Event) -> None:
     perclos_tracker = PerclosTracker(window_seconds=args.perclos_window)
-    scorer = StageAScorer(StageAConfig())
+    scorer = StageAScorer(StageAConfig(mar_yawn_threshold=args.mar_threshold,
+                                       yawn_cooldown_sec=args.yawn_cooldown,
+                                       perclos_threshold=args.perclos_threshold))
     last_seq, frames, faces = 0, 0, 0
     errors, last_error_log = 0, 0.0
     window_start, window_frames = time.time(), 0
@@ -275,6 +277,13 @@ def main() -> None:
     parser.add_argument("--ppg", default="auto", choices=["auto", "off"],
                         help="MAX30102 heart-rate sensor; auto = use it if it answers on the I2C bus")
     parser.add_argument("--i2c-bus", type=int, default=0)
+    defaults = StageAConfig()
+    parser.add_argument("--mar-threshold", type=float, default=defaults.mar_yawn_threshold,
+                        help="mouth-open (yawn) event when MAR rises above this")
+    parser.add_argument("--yawn-cooldown", type=float, default=defaults.yawn_cooldown_sec,
+                        help="seconds before another mouth-open event can score")
+    parser.add_argument("--perclos-threshold", type=float, default=defaults.perclos_threshold,
+                        help="eye-closure share of the window above which points accrue per second")
     parser.add_argument("--no-overlay", action="store_true",
                         help="stream the raw picture without the DMS face box / mesh / status text")
     parser.add_argument("--perclos-window", type=float, default=30.0,
@@ -290,6 +299,8 @@ def main() -> None:
         transports.append(MqttTransport(args.mqtt_host, args.mqtt_port, args.rider_id))
     if args.http:
         transports.append(HttpTransport(args.http))
+    print(f"stage A: MAR>{args.mar_threshold} (+3, cooldown {args.yawn_cooldown}s), "
+          f"PERCLOS>{args.perclos_threshold} (+2/s)", flush=True)
     print(f"rider {args.rider_id}: publishing to {[t.name for t in transports] or 'NOWHERE'}; "
           f"perclos window {args.perclos_window:.0f}s", flush=True)
 
@@ -309,7 +320,10 @@ def main() -> None:
         analyzer = build_dms_frame_source(img_size=(side, side), model_set="float")
     live, stop = LiveState(), threading.Event()
     if not args.no_overlay:
-        stream_state.annotate = lambda frame: overlay.draw(frame, live.detection, time.time())
+        # the overlay's "Yawning" line follows the SAME threshold the score uses,
+        # otherwise the picture says "No" while the score is adding +3
+        stream_state.annotate = lambda frame: overlay.draw(frame, live.detection, time.time(),
+                                                           mar_threshold=args.mar_threshold)
     ppg = None
     if args.ppg == "auto":
         try:

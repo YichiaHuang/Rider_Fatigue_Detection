@@ -56,3 +56,36 @@ class TimescaleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DemoTuningTest(unittest.TestCase):
+    """2026-09-19 team tuning: MAR 0.1, 1 s cooldown, PERCLOS 0.10."""
+
+    def test_mouth_events_one_second_apart_each_score(self):
+        scorer, total = StageAScorer(StageAConfig()), 0.0
+        # mouth opens (0.15) for 0.4 s, closes, and again 1.2 s after the first opening
+        for i in range(60):
+            t = i / 20.0
+            opened = (0.5 <= t < 0.9) or (1.7 <= t < 2.1)
+            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.15 if opened else 0.05))["added"]
+        self.assertEqual(total, 6.0)
+
+    def test_reopening_within_the_cooldown_does_not_score_twice(self):
+        scorer, total = StageAScorer(StageAConfig()), 0.0
+        for i in range(40):
+            t = i / 20.0
+            opened = (0.5 <= t < 0.7) or (1.0 <= t < 1.2)      # second opening only 0.5 s later
+            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.15 if opened else 0.05))["added"]
+        self.assertEqual(total, 3.0)
+
+    def test_held_open_mouth_scores_once(self):
+        scorer = StageAScorer(StageAConfig())
+        total = sum(scorer.update(timestamp=i / 20.0, **dict(NORMAL, mar=0.5))["added"] for i in range(100))
+        self.assertEqual(total, 3.0, "edge-triggered: 5 s of open mouth is one event, not five")
+
+    def test_perclos_between_old_and_new_threshold_now_accrues(self):
+        scorer = StageAScorer(StageAConfig())
+        for i in range(1, 6):
+            result = scorer.update(timestamp=float(i), **dict(NORMAL, perclos=0.12))
+        self.assertEqual(result["reasons"], ["perclos"])
+        self.assertAlmostEqual(result["score"], 8.0, delta=0.01)   # 2 points/s over 4 s

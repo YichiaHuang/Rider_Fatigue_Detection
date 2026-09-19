@@ -7,17 +7,17 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "rider"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "platform"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "legacy", "platform_streamlit"))
 
 from stage_a_scoring import StageAConfig, StageAScorer  # noqa: E402
 from circuit_breaker import BreakerConfig, DispatchCircuitBreaker  # noqa: E402
 
-NORMAL = dict(ear=0.30, mar=0.20, head_pitch_deg=5.0, perclos=0.05)
-EYES_CLOSED = dict(ear=0.10, mar=0.20, head_pitch_deg=5.0, perclos=0.40)
+NORMAL = dict(ear=0.30, mar=0.05, head_pitch_deg=5.0, perclos=0.05)
+EYES_CLOSED = dict(ear=0.10, mar=0.05, head_pitch_deg=5.0, perclos=0.40)
 YAWNING = dict(ear=0.30, mar=0.75, head_pitch_deg=5.0, perclos=0.05)
-HEAD_DROP_VISUAL_ONLY = dict(ear=0.30, mar=0.20, head_pitch_deg=30.0, perclos=0.05)
-HEAD_DROP_VISUAL_AND_IMU = dict(ear=0.30, mar=0.20, head_pitch_deg=30.0, perclos=0.05, imu_pitch_deg=30.0)
-HEAD_DROP_VISUAL_ONLY_IMU_DISAGREES = dict(ear=0.30, mar=0.20, head_pitch_deg=30.0, perclos=0.05, imu_pitch_deg=5.0)
+HEAD_DROP_VISUAL_ONLY = dict(ear=0.30, mar=0.05, head_pitch_deg=30.0, perclos=0.05)
+HEAD_DROP_VISUAL_AND_IMU = dict(ear=0.30, mar=0.05, head_pitch_deg=30.0, perclos=0.05, imu_pitch_deg=30.0)
+HEAD_DROP_VISUAL_ONLY_IMU_DISAGREES = dict(ear=0.30, mar=0.05, head_pitch_deg=30.0, perclos=0.05, imu_pitch_deg=5.0)
 
 
 def run_scenario(name, frames):

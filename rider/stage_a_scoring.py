@@ -36,7 +36,9 @@ from typing import Optional
 
 @dataclass
 class StageAConfig:
-    perclos_threshold: float = 0.15
+    # 2026-09-19 (team decision, demo tuning): 0.15 -> 0.10. With the 30 s demo
+    # window that is ~3 s of closed eyes instead of ~4.5 s before points accrue.
+    perclos_threshold: float = 0.10
     perclos_add: float = 2.0  # per SECOND above threshold (same rate the old per-call rule gave at 1 Hz)
 
     # Longest gap between two updates that still counts as continuous time.
@@ -52,9 +54,14 @@ class StageAConfig:
     # landmark picks and a different scale than layer_b_features.py's, so
     # these thresholds only make sense paired with the real pipeline's
     # output. Re-tune after Thursday's calibration recordings.
-    mar_yawn_threshold: float = 0.3  # main.py: mouth_ratio > 0.3 -> yawning
+    # 2026-09-19 (team decision, demo tuning): 0.3 -> 0.1 and cooldown 3 s -> 1 s, so
+    # a mouth-opening event is easy to show. Measured on the live camera the same
+    # day: resting MAR median 0.05, p75 0.14 — i.e. at 0.1 ordinary TALKING crosses
+    # the line too (37 % of sampled seconds). main.py's own yawn line is 0.3.
+    # Both are overridable at start-up: --mar-threshold / --yawn-cooldown.
+    mar_yawn_threshold: float = 0.1
     yawn_add: float = 3.0
-    yawn_cooldown_sec: float = 3.0  # min gap between counted yawn events
+    yawn_cooldown_sec: float = 1.0  # min gap between counted mouth-open events
 
     head_pitch_threshold_deg: float = 13.0  # main.py: pitch < -13 -> "Down" (sign-flipped here, see analyze.py)
     head_sustained_sec: float = 2.0

@@ -35,7 +35,7 @@ def face_direction(f: dict) -> str:
     return "Forward"
 
 
-def draw(frame_bgr, detection: "dict | None", now: float):
+def draw(frame_bgr, detection: "dict | None", now: float, mar_threshold: float = 0.3):
     """detection: {"at", "geometry", "features", "score", "perclos", "reasons", "inference_fps"}
     as kept by live_runner, or None. Returns a new image; the input frame is
     shared with the inference thread and must not be modified."""
@@ -68,10 +68,10 @@ def draw(frame_bgr, detection: "dict | None", now: float):
     cv2.rectangle(image, (x1, y1), (x2, y2), BLUE, 2)
     _text(image, f"{g['det_score']:.2f}", (x1 + 4, max(18, y1 - 6)), WHITE)
 
-    yawning = f["mar"] > 0.3
+    yawning = f["mar"] > mar_threshold
     eyes_closed = f["left_eye_ratio"] < 0.2 and f["right_eye_ratio"] < 0.2
     direction = face_direction(f)
-    _text(image, "Yawning: " + ("Detected" if yawning else "No"), (16, 30), RED if yawning else GREEN, 0.7)
+    _text(image, f"Mouth>{mar_threshold:g}: " + ("Open" if yawning else "No"), (16, 30), RED if yawning else GREEN, 0.7)
     _text(image, "Eye: " + ("Closed" if eyes_closed else "Open"), (16, 58), RED if eyes_closed else GREEN, 0.7)
     _text(image, "Face: " + direction, (16, 86), GREEN if direction == "Forward" else RED, 0.7)
 
