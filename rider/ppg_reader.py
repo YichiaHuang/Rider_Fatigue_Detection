@@ -45,7 +45,9 @@ class PpgUnavailable(Exception):
 
 
 class Max30102:
-    def __init__(self, bus: int = 0):
+    def __init__(self, bus: int = 0, spo2_config: int = SPO2_CONFIG, fifo_config: int = FIFO_CONFIG,
+                 led_pa: int = LED_PA):
+        self.spo2_config, self.fifo_config, self.led_pa = spo2_config, fifo_config, led_pa
         try:
             from smbus2 import SMBus, i2c_msg
         except ImportError as exc:
@@ -74,10 +76,10 @@ class Max30102:
         time.sleep(0.1)
         for reg in (0x04, 0x05, 0x06):
             self._write(reg, 0x00)
-        self._write(REG_FIFO_CONFIG, FIFO_CONFIG)
-        self._write(REG_SPO2_CONFIG, SPO2_CONFIG)
-        self._write(REG_LED1_PA, LED_PA)
-        self._write(REG_LED2_PA, LED_PA)
+        self._write(REG_FIFO_CONFIG, self.fifo_config)
+        self._write(REG_SPO2_CONFIG, self.spo2_config)
+        self._write(REG_LED1_PA, self.led_pa)
+        self._write(REG_LED2_PA, self.led_pa)
         self._write(REG_MODE_CONFIG, MODE_SPO2)  # last: starts sampling
         before = self._read(REG_FIFO_WR_PTR, 1)[0]
         time.sleep(0.25)
@@ -100,6 +102,12 @@ class Max30102:
         raw = self._read(REG_FIFO_DATA, count * 6)
         samples = [((raw[i * 6 + 3] << 16) | (raw[i * 6 + 4] << 8) | raw[i * 6 + 5]) & 0x03FFFF
                    for i in range(count)]
+        if overflow:
+            # The overflow counter is sticky on this part: once set it stayed set on
+            # every later read (seen on the board), which would make the monitor throw
+            # its samples away forever. Flush the FIFO and clear it explicitly.
+            for reg in (0x04, 0x05, 0x06):
+                self._write(reg, 0x00)
         return samples, overflow > 0
 
 
@@ -109,6 +117,7 @@ class PpgMonitor:
     def __init__(self, bus: int = 0):
         self._sensor = Max30102(bus)
         self._samples = deque(maxlen=int(SAMPLE_HZ * HRV_WINDOW_SEC))  # (t, ir)
+        self._tracker = ppg_dsp.RateTracker()
         self.overflows = 0
 
     def run(self, emit, should_stop) -> None:
@@ -151,6 +160,9 @@ class PpgMonitor:
             long_run = ppg_dsp.analyze([t for t, _ in samples], [v for _, v in samples])
             if long_run["quality"] == ppg_dsp.QUALITY_GOOD:
                 result["rmssd_ms"] = long_run["rmssd_ms"]
+        # One window only yields a candidate; the tracker decides what is shown
+        # (needs several consistent seconds to lock, then rides out brief dropouts).
+        result = self._tracker.update(now, result)
         contact = result["quality"] != ppg_dsp.QUALITY_NO_CONTACT
         result["waveform"] = ppg_dsp.display_waveform([t for t, _ in recent], [v for _, v in recent]) if contact else []
         result["timestamp"] = now

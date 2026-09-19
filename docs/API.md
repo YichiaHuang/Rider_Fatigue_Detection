@@ -41,8 +41,9 @@ Topic 格式 `riders/{rider_id}/{kind}`，payload 都是 JSON，QoS 0。第一�
  "perfusion_index": 0.8, "waveform": [0.02, 0.10, 0.45, ...]}
 ```
 
-- `quality`：`no_contact`（IR 低於 50000，沒貼到皮膚）｜`settling`（剛接觸，還不到 8 秒）｜`weak`（有訊號但兩種估計不一致或週期性太差）｜`good`。
-- **`heart_rate_bpm` 只有在 `good` 時才有值**，其餘一律 `null`；平台端也會把非 `good` 的心率丟掉。寧可沒有數字，不顯示猜的數字。
+- `quality`：`no_contact`（IR 低於 50000，沒貼到皮膚）｜`settling`（剛接觸，穩定訊號還不到 6 秒）｜`weak`（有訊號但還不能採信）｜`good`（已鎖定）｜`holding`（剛才鎖定過，訊號短暫不穩，沿用追蹤值，`held_sec` 是該數值的年齡，最多 10 秒）。
+- **`heart_rate_bpm` 只有在 `good`／`holding` 才有值**，其餘一律 `null`。判定方式（`rider/ppg_dsp.py`，門檻用這顆感測器的真實錄音調過）：每秒的單一視窗只產生「候選值」，需同時通過灌流指數 0.15–6%、自相關與逐拍計時一致（±6 bpm）、心跳間隔規律、頻譜能量集中在該心率的諧波上（≥0.55）；**連續 5 個候選值落在 5 bpm 內才鎖定**，鎖定後接受追蹤值 ±12 bpm 內的候選值。失去接觸立即解除鎖定。
+- 診斷欄位：`ir_dc`、`perfusion_index`、`autocorr`、`spectral_peak`、`sample_hz`（應為 50）、`fifo_overflows`。
 - `rmssd_ms`：約 40 秒穩定訊號後才有，僅供參考（50 Hz 取樣、手指／耳垂量測，不是醫療級 HRV）。
 - `waveform`：最近 6 秒帶通後的脈搏波，150 點、範圍 −1～1，純顯示用。最多 400 點。
 - 平台端 5 秒沒收到就清掉，不會留著舊的心率。**目前心率只顯示、不參與疲勞評分。**

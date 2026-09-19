@@ -79,5 +79,71 @@ class PpgDspTest(unittest.TestCase):
         self.assertGreater(max(wave), 0.8)   # beats point up
 
 
+def replay(ir, seconds_per_step=1.0):
+    """Feed a stream through analyze() + RateTracker the way the board does."""
+    tracker, shown = ppg_dsp.RateTracker(), []
+    for end in range(int(FS * 3), len(ir) + 1, int(FS * seconds_per_step)):
+        lo = max(0, end - int(12 * FS))
+        window = ppg_dsp.analyze([i / FS for i in range(lo, end)], ir[lo:end])
+        shown.append(tracker.update(end / FS, window))
+    return shown
+
+
+class TrackerTest(unittest.TestCase):
+    def test_weak_pulse_locks_and_stays(self):
+        _, ir = pulse_wave(72, seconds=45.0, amplitude=360.0, noise=25.0, drift=800.0)   # perfusion ~0.3 %
+        shown = replay(ir)
+        rates = [o["heart_rate_bpm"] for o in shown if o["heart_rate_bpm"] is not None]
+        self.assertGreater(len(rates), 0.6 * len(shown), [o["quality"] for o in shown])
+        self.assertTrue(all(abs(r - 72) < 4 for r in rates), rates)
+
+    def test_single_window_is_only_a_candidate(self):
+        tracker = ppg_dsp.RateTracker()
+        window = ppg_dsp.analyze(*pulse_wave(72))
+        self.assertEqual(window["quality"], "good")
+        first = tracker.update(100.0, window)
+        self.assertEqual((first["quality"], first["heart_rate_bpm"]), ("weak", None), "one good window must not show a rate")
+
+    def test_holds_through_a_dropout_then_gives_up(self):
+        tracker = ppg_dsp.RateTracker()
+        good = ppg_dsp.analyze(*pulse_wave(72))
+        weak = dict(good, quality="weak", heart_rate_bpm=None)
+        for i in range(6):
+            out = tracker.update(100.0 + i, good)
+        self.assertEqual(out["quality"], "good")
+        held = tracker.update(110.0, weak)
+        self.assertEqual((held["quality"], held["heart_rate_bpm"] is not None, held["held_sec"]), ("holding", True, 5.0))
+        gone = tracker.update(118.0, weak)
+        self.assertEqual((gone["quality"], gone["heart_rate_bpm"]), ("weak", None), "a stale rate must be dropped")
+
+    def test_contact_loss_unlocks_immediately(self):
+        tracker = ppg_dsp.RateTracker()
+        good = ppg_dsp.analyze(*pulse_wave(72))
+        for i in range(6):
+            tracker.update(100.0 + i, good)
+        out = tracker.update(106.0, dict(good, quality="no_contact", heart_rate_bpm=None))
+        self.assertEqual((out["quality"], out["heart_rate_bpm"]), ("no_contact", None))
+
+    def test_jumping_candidates_never_lock(self):
+        tracker, template = ppg_dsp.RateTracker(), ppg_dsp.analyze(*pulse_wave(72))
+        for i, bpm in enumerate((52, 88, 61, 120, 47, 95, 70, 110, 58, 83)):
+            out = tracker.update(100.0 + i, dict(template, heart_rate_bpm=float(bpm)))
+            self.assertIsNone(out["heart_rate_bpm"])
+
+    def test_static_surface_noise_shows_nothing(self):
+        rng = random.Random(7)
+        level, ir = 120000.0, []
+        for _ in range(int(60 * FS)):   # sensor pressed on a desk: IR high, only electronics noise
+            level += rng.gauss(0, 2)
+            ir.append(level + rng.gauss(0, 25))
+        self.assertTrue(all(o["heart_rate_bpm"] is None for o in replay(ir)))
+
+    def test_placement_step_does_not_block_the_window(self):
+        _, ir = pulse_wave(72, seconds=14.0)
+        ir[:150] = [2000.0 + (v - 120000.0) * 0.01 for v in ir[:150]]     # first 3 s: finger not on yet
+        result = ppg_dsp.analyze([i / FS for i in range(len(ir))], ir)
+        self.assertEqual(result["quality"], "good", result)
+
+
 if __name__ == "__main__":
     unittest.main()

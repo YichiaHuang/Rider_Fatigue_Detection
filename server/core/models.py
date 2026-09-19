@@ -48,7 +48,8 @@ class HealthSample:
     perception: str  # one of PERCEPTION_VALUES
 
 
-VITALS_QUALITIES = ("no_contact", "settling", "weak", "good")
+VITALS_QUALITIES = ("no_contact", "settling", "weak", "good", "holding")
+VITALS_QUALITIES_WITH_RATE = ("good", "holding")   # holding = the board's tracker is riding out a brief dropout
 MAX_WAVEFORM_POINTS = 400
 
 
@@ -65,6 +66,8 @@ class VitalsSample:
     ir_dc: "float | None" = None        # raw IR level: ~1-2k bare sensor, >50k on skin
     autocorr: "float | None" = None     # periodicity 0-1; the board needs >= 0.3 to trust a rate
     sample_hz: "float | None" = None    # samples actually received per second (nominal 50)
+    spectral_peak: "float | None" = None  # share of pulse-band energy at the strongest line (>= 0.45 needed)
+    held_sec: "float | None" = None     # quality "holding": how old the shown rate is
     waveform: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
@@ -129,10 +132,12 @@ def parse_vitals(rider_id: str, payload: dict) -> VitalsSample:
         raise PayloadError(f"'heart_rate_bpm' {rate} is outside 25-250")
     return VitalsSample(
         rider_id=rider_id, timestamp=_number(payload, "timestamp"), quality=quality,
-        heart_rate_bpm=rate if quality == "good" else None,
+        heart_rate_bpm=rate if quality in VITALS_QUALITIES_WITH_RATE else None,
         rmssd_ms=_number(payload, "rmssd_ms", required=False),
         perfusion_index=_number(payload, "perfusion_index", required=False),
         ir_dc=_number(payload, "ir_dc", required=False),
         autocorr=_number(payload, "autocorr", required=False),
         sample_hz=_number(payload, "sample_hz", required=False),
+        spectral_peak=_number(payload, "spectral_peak", required=False),
+        held_sec=_number(payload, "held_sec", required=False),
         waveform=tuple(float(v) for v in waveform))

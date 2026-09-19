@@ -8,6 +8,7 @@ const W = 300, H = 56;
 
 const QUALITY_TEXT = {
   good: '訊號良好',
+  holding: '訊號短暫不穩，沿用剛才的數值',
   weak: '訊號不穩，請保持不動',
   settling: '已接觸，量測中…',
   no_contact: '感測器未接觸皮膚',
@@ -22,7 +23,7 @@ export function createVitalsPanel() {
   const RAW = [
     { key: 'ir_dc', label: '訊號強度 IR', hint: '貼好 > 50,000', fmt: (v) => Math.round(v).toLocaleString('en-US') },
     { key: 'perfusion_index', label: '灌流指數', hint: '% · 越高越好', fmt: (v) => fmtNum(v, 2) },
-    { key: 'autocorr', label: '週期性', hint: '≥ 0.30 才採信', fmt: (v) => fmtNum(v, 2) },
+    { key: 'spectral_peak', label: '頻譜集中度', hint: '≥ 0.55 才採信', fmt: (v) => fmtNum(v, 2) },
     { key: 'sample_hz', label: '取樣率', hint: 'Hz · 應為 50', fmt: (v) => fmtNum(v, 1) },
   ].map((r) => {
     const v = el('div', { class: 'value', text: '—' });
@@ -61,7 +62,8 @@ export function createVitalsPanel() {
       node.dataset.quality = vitals.quality;
       RAW.forEach((r) => { r.v.textContent = vitals[r.key] == null ? '—' : r.fmt(vitals[r.key]); });
       value.textContent = vitals.heart_rate_bpm == null ? '—' : Math.round(vitals.heart_rate_bpm);
-      state.textContent = QUALITY_TEXT[vitals.quality] || vitals.quality;
+      state.textContent = (QUALITY_TEXT[vitals.quality] || vitals.quality)
+        + (vitals.quality === 'holding' && vitals.held_sec != null ? `（${Math.round(vitals.held_sec)} 秒前）` : '');
       const parts = [];
       if (vitals.rmssd_ms != null) parts.push(`HRV (RMSSD) ${fmtNum(vitals.rmssd_ms, 0)} ms`);
       if (vitals.perfusion_index != null) parts.push(`灌流指數 ${fmtNum(vitals.perfusion_index, 2)}%`);
