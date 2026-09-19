@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
 
 class DemoTuningTest(unittest.TestCase):
-    """2026-09-19 team tuning: MAR 0.1, 1 s cooldown, PERCLOS 0.10."""
+    """2026-09-19 team tuning: MAR 0.3 (0.1 was tried and reverted), 1 s cooldown, PERCLOS 0.10."""
 
     def test_mouth_events_one_second_apart_each_score(self):
         scorer, total = StageAScorer(StageAConfig()), 0.0
@@ -76,7 +76,7 @@ class DemoTuningTest(unittest.TestCase):
         for i in range(60):
             t = i / 20.0
             opened = (0.5 <= t < 0.9) or (1.7 <= t < 2.1)
-            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.15 if opened else 0.05))["added"]
+            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.45 if opened else 0.05))["added"]
         self.assertEqual(total, 6.0)
 
     def test_reopening_within_the_cooldown_does_not_score_twice(self):
@@ -84,8 +84,14 @@ class DemoTuningTest(unittest.TestCase):
         for i in range(40):
             t = i / 20.0
             opened = (0.5 <= t < 0.7) or (1.0 <= t < 1.2)      # second opening only 0.5 s later
-            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.15 if opened else 0.05))["added"]
+            total += scorer.update(timestamp=t, **dict(NORMAL, mar=0.45 if opened else 0.05))["added"]
         self.assertEqual(total, 3.0)
+
+    def test_talking_level_mouth_movement_does_not_score(self):
+        scorer = StageAScorer(StageAConfig())
+        total = sum(scorer.update(timestamp=i / 20.0, **dict(NORMAL, mar=0.14 if (i // 6) % 2 else 0.05))["added"]
+                    for i in range(200))                       # 10 s of MAR flapping 0.05 <-> 0.14 (p75 when talking)
+        self.assertEqual(total, 0.0)
 
     def test_held_open_mouth_scores_once(self):
         scorer = StageAScorer(StageAConfig())
