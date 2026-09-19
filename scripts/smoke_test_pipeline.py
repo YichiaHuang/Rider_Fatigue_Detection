@@ -14,6 +14,7 @@ from layer_b_features import LEFT_EYE, RIGHT_EYE, MOUTH_TOP, MOUTH_BOTTOM, MOUTH
 from imu_reader import MPU6050Reader  # noqa: E402
 from audio_anomaly import AudioAnomalyConfig, AudioAnomalyDetector  # noqa: E402
 from pipeline import RiderPipeline  # noqa: E402
+from stage_a_scoring import StageAConfig  # noqa: E402
 
 
 def make_eye_points(cx: float, vertical_half_gap: float):
@@ -44,11 +45,18 @@ def build_landmarks(eyes_open: bool, mouth_open: bool):
     return landmarks
 
 
+# These synthetic landmarks go through layer_b_features' own MAR formula, whose
+# scale differs from the DMS pipeline's (closed mouth ~0.2 here vs ~0.05 live).
+# StageAConfig's default MAR line (0.1) is tuned for the DMS scale, so this test
+# pins the generic-scale value instead of inheriting it.
+GENERIC_SCALE = dict(mar_yawn_threshold=0.6)
+
+
 def run():
     imu = MPU6050Reader(mock=True, ema_alpha=1.0)
     audio_cfg = AudioAnomalyConfig()
     audio = AudioAnomalyDetector(audio_cfg)
-    pipeline = RiderPipeline("smoke-test-rider", imu_reader=imu, audio_detector=audio)
+    pipeline = RiderPipeline("smoke-test-rider", StageAConfig(**GENERIC_SCALE), imu_reader=imu, audio_detector=audio)
 
     print("=== 正常 5 秒：不應觸發任何規則 ===")
     imu.inject_pitch(5.0)
@@ -59,7 +67,7 @@ def run():
         assert result["reasons"] == [], f"expected no anomalies, got {result['reasons']}"
 
     print("\n=== 閉眼+低頭（視覺+IMU 同時異常）5 秒：應該同時觸發 perclos 與 head_drop ===")
-    pipeline2 = RiderPipeline("smoke-test-rider-2", imu_reader=imu)
+    pipeline2 = RiderPipeline("smoke-test-rider-2", StageAConfig(**GENERIC_SCALE), imu_reader=imu)
     imu.inject_pitch(35.0)
     seen_reasons = set()
     # 10 FPS for 10 s: PerclosTracker is time-weighted with a 5 s warm-up and
@@ -76,7 +84,7 @@ def run():
     assert "head_drop" in seen_reasons, f"expected head_drop (IMU-confirmed) to fire, saw {seen_reasons}"
 
     print("\n=== 沒有 IMU/audio 注入的 pipeline 仍應能獨立運作 ===")
-    bare_pipeline = RiderPipeline("smoke-test-rider-3")
+    bare_pipeline = RiderPipeline("smoke-test-rider-3", StageAConfig(**GENERIC_SCALE))
     landmarks = build_landmarks(eyes_open=True, mouth_open=True)
     result = bare_pipeline.process_frame(0.0, landmarks, head_pitch_deg=30.0)
     print(f"score={result['score']:.2f} reasons={result['reasons']}")
