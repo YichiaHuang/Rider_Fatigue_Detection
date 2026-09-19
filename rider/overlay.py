@@ -51,8 +51,12 @@ def draw(frame_bgr, detection: "dict | None", now: float):
         return image
 
     g, f = detection["geometry"], detection["features"]
-    for x, y in g["mesh"]:
-        cv2.circle(image, (int(x), int(y)), 1, YELLOW, -1)
+    # 468 points in one vectorised write (2x2 px each) instead of 468 cv2.circle calls
+    mesh = g["mesh"]
+    inside = (mesh[:, 0] >= 0) & (mesh[:, 0] < w - 1) & (mesh[:, 1] >= 0) & (mesh[:, 1] < h - 1)
+    xs, ys = mesh[inside, 0], mesh[inside, 1]
+    for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+        image[ys + dy, xs + dx] = YELLOW
     for eye in g["eyes"]:
         cv2.polylines(image, [eye[:16].reshape(-1, 1, 2)], True, GREEN, 1, cv2.LINE_AA)
     for iris in g["irises"]:
@@ -71,7 +75,9 @@ def draw(frame_bgr, detection: "dict | None", now: float):
     _text(image, "Eye: " + ("Closed" if eyes_closed else "Open"), (16, 58), RED if eyes_closed else GREEN, 0.7)
     _text(image, "Face: " + direction, (16, 86), GREEN if direction == "Forward" else RED, 0.7)
 
-    lines = [f"EAR {f['ear']:.2f}  MAR {f['mar']:.2f}",
+    if detection.get("turned_away"):
+        _text(image, f"TURNED AWAY (yaw {f['yaw_deg']:+.0f}): eyes/mouth not scored", (16, 114), YELLOW, 0.6)
+    lines = [f"EAR {f['ear']:.2f}  MAR {f['mar']:.2f}  yaw {f['yaw_deg']:+.0f}",
              f"PERCLOS {detection['perclos']:.2f}  pitch {f['head_pitch_deg']:+.0f}",
              f"score {detection['score']:.1f}  {' '.join(detection['reasons'])}"]
     for i, line in enumerate(lines):

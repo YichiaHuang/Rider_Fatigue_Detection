@@ -21,7 +21,7 @@ import threading
 import time
 
 from ..config import SOURCE_SIMULATED, Config
-from ..core.models import PERCEPTION_NO_FACE, PERCEPTION_OK, DetailSample, HealthSample, ScoreSample
+from ..core.models import PERCEPTION_NO_FACE, PERCEPTION_OK, DetailSample, HealthSample, ScoreSample, VitalsSample
 from ..core.store import RiderStore
 from .base import Source
 
@@ -118,3 +118,13 @@ class SimulatorSource(Source):
             inference_fps=round(12.0 + rng.uniform(-1, 1), 1),
             reasons=tuple(reasons),
         ))
+        # Simulated pulse: slower when "fatigued"; sensor "off the skin" for 15 s of every 75 s.
+        off_skin = (rider.t % 75.0) > 60.0
+        bpm = (62.0 if fatigued else 76.0) + 3.0 * wobble
+        wave = () if off_skin else tuple(
+            round(math.exp(-((((now - 6.0 + i / 25.0) * bpm / 60.0) % 1.0 - 0.2) / 0.09) ** 2) * 1.6 - 0.6, 2)
+            for i in range(150))
+        self.store.ingest_vitals(VitalsSample(
+            rider_id=rider.rider_id, timestamp=now, quality="no_contact" if off_skin else "good",
+            heart_rate_bpm=None if off_skin else round(bpm, 1), rmssd_ms=None if off_skin else 38.0,
+            perfusion_index=None if off_skin else 0.8, waveform=wave))

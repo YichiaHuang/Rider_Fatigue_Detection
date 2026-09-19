@@ -3,6 +3,7 @@
 import { REASON_TEXT, SOURCE_TEXT, el, fmtAge, fmtClock, fmtNum, fmtScore, unknownReason } from '../utils/format.js';
 import { createLineChart } from './lineChart.js';
 import { createStatusBadge } from './statusBadge.js';
+import { createVitalsPanel } from './vitalsPanel.js';
 
 const TILES = [
   { key: 'ear', label: 'EAR 眼睛開合', digits: 2, hint: '越小越閉' },
@@ -28,6 +29,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
   });
   const reasons = el('div', { class: 'reasons' });
   const detailNote = el('div', { class: 'card-sub' });
+  const vitals = createVitalsPanel();
 
   readoutMount.classList.add('readout');
   readoutMount.append(
@@ -35,7 +37,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
     hero, el('div', {}, badge.node), note,
     el('div', { class: 'tiles' }, tileNodes.map((t) => t.node)),
     el('div', {}, el('div', { class: 'card-sub', text: '本次加分原因' }), reasons),
-    detailNote);
+    detailNote, vitals.node);
 
   // ---- chart + table twin ----
   const chartBox = el('div');
@@ -90,6 +92,7 @@ export function createPrimaryRider(readoutMount, chartMount, config) {
         ? `特徵細節僅在展示模式傳送${d.inference_fps != null ? ` · 推論 ${fmtNum(d.inference_fps, 1)} FPS` : ''}`
         : '一般模式不傳送特徵細節，平台只有分數';
 
+      vitals.update(rider.vitals);
       chart.update(rider.history, { dim: unknown });
       if (!tableWrap.hidden) renderTable(rider.history);
       lastHistory = rider.history;

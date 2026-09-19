@@ -4,7 +4,9 @@
 #   sh tools/start_board.sh --demo          # start with the stream on
 #   RIDER_ID=rider-06 sh tools/start_board.sh   # a second board needs its own id
 #   sh tools/start_board.sh stop            # stop everything
-cd /home/fatigue-detection || exit 1
+# Wherever this checkout lives (/home/Rider_Fatigue_Detection, a backup copy, …)
+cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+echo "project dir: $(pwd)"
 
 # Stop the supervisor first, otherwise it would just restart the runner we kill next.
 pkill -f "^sh -c : rider-supervisor" 2>/dev/null   # anchored: an unanchored pattern also matches the SSH shell running this script

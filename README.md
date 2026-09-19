@@ -2,7 +2,7 @@
 
 外送騎手疲勞風險偵測的**平台端**：接收板子送來的疲勞分數 → 派單熔斷（暫停／恢復）→ 網頁儀表板（1 位真實騎手＋4 位模擬騎手＋即時攝影機畫面）。整體計畫見 [`plan.md`](plan.md)，三方資料格式見 [`docs/API.md`](docs/API.md)。
 
-板子端程式（`rider/`、`scripts/`）已併入這個資料夾，部署位置是板子的 `/home/fatigue-detection/`；隊友 H1 的 NXP DMS 推論程式放在 `guardian_helmet_dms/`（板子上的位置是 `/root/guardian_helmet/dms`）。
+板子端程式（`rider/`、`scripts/`）已併入這個資料夾，部署位置是板子的 `/home/Rider_Fatigue_Detection/`；隊友 H1 的 NXP DMS 推論程式放在 `guardian_helmet_dms/`（板子上的位置是 `/root/guardian_helmet/dms`）。
 
 ## 執行
 
@@ -22,7 +22,7 @@ python3 -m server --board rider-01=http://172.20.10.3:8080   # 指定某位騎�
 
 ```sh
 # 1. 板子上（SSH 進去）：攝影機 → DMS 推論 → Stage A → MQTT，同時提供展示影像
-sh /home/fatigue-detection/tools/start_board.sh            # 加 --demo 則一啟動就開串流
+sh /home/Rider_Fatigue_Detection/tools/start_board.sh            # 加 --demo 則一啟動就開串流
 
 # 2. 筆電上：開 MQTT 通道 + 儀表板（一個指令）
 tools/connect_board.sh                                     # 走 Tailscale
@@ -75,6 +75,8 @@ rider/                  板子端
   frame_source.py       唯一開攝影機的地方（推論與串流共用）
   stream_server.py      MJPEG 串流＋一般／展示模式（自動調整畫質）
   overlay.py            展示串流上的 DMS 疊圖（人臉框、網格、狀態文字）
+  ppg_reader.py         MAX30102 心率感測器讀取（暫存器設定沿用 H2 的 sensor_test.c）
+  ppg_dsp.py            心率／HRV 訊號處理（純 Python；訊號不可靠時不回報數字）
   （推論預設 `--model-set hybrid`：人臉偵測跑 CPU、468 點網格與虹膜跑 Ethos-U65 NPU，實測約 21 FPS；`float` 為全 CPU 約 10 FPS。依據見 docs/nxp_dms_models.md）
   stage_a_scoring.py    規則式評分（按時間累積，與幀率無關）
   layer_b_features.py   PERCLOS（按時間加權、有暖機）等特徵

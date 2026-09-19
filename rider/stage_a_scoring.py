@@ -66,7 +66,10 @@ class StageAConfig:
     audio_bonus_add: float = 1.0  # only ever applied on top of an already-firing rule
 
     decay_per_sec: float = 1.0
-    max_score: float = 100.0
+    # Cap close above the platform's pause threshold (15): with the old cap of
+    # 100 a rider who had been flagged for a while needed ~90 s of normal
+    # behaviour before dispatch could resume; at 30 it is ~22 s.
+    max_score: float = 30.0
 
 
 @dataclass

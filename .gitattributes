@@ -1,0 +1,5 @@
+# The board runs Linux: CRLF breaks shell scripts ("#!/bin/sh\r") when the repo is
+# cloned on Windows and copied over. Keep code LF everywhere.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf

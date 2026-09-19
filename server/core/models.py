@@ -48,6 +48,29 @@ class HealthSample:
     perception: str  # one of PERCEPTION_VALUES
 
 
+VITALS_QUALITIES = ("no_contact", "settling", "weak", "good")
+MAX_WAVEFORM_POINTS = 400
+
+
+@dataclass(frozen=True)
+class VitalsSample:
+    """Demo-mode only: PPG heart rate. heart_rate_bpm is None unless the board
+    judged the signal good — the platform never invents or carries forward a rate."""
+    rider_id: str
+    timestamp: float
+    quality: str
+    heart_rate_bpm: "float | None" = None
+    rmssd_ms: "float | None" = None
+    perfusion_index: "float | None" = None
+    waveform: tuple = field(default_factory=tuple)
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d.pop("rider_id")
+        d["waveform"] = list(self.waveform)
+        return d
+
+
 class PayloadError(ValueError):
     pass
 
@@ -88,3 +111,22 @@ def parse_health(rider_id: str, payload: dict) -> HealthSample:
     if perception not in PERCEPTION_VALUES:
         raise PayloadError(f"'perception' must be one of {PERCEPTION_VALUES}, got {perception!r}")
     return HealthSample(rider_id, _number(payload, "timestamp"), perception)
+
+
+def parse_vitals(rider_id: str, payload: dict) -> VitalsSample:
+    quality = payload.get("quality")
+    if quality not in VITALS_QUALITIES:
+        raise PayloadError(f"'quality' must be one of {VITALS_QUALITIES}, got {quality!r}")
+    waveform = payload.get("waveform") or ()
+    if not isinstance(waveform, (list, tuple)) or len(waveform) > MAX_WAVEFORM_POINTS or \
+            any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in waveform):
+        raise PayloadError(f"'waveform' must be a list of at most {MAX_WAVEFORM_POINTS} numbers")
+    rate = _number(payload, "heart_rate_bpm", required=False)
+    if rate is not None and not 25.0 <= rate <= 250.0:
+        raise PayloadError(f"'heart_rate_bpm' {rate} is outside 25-250")
+    return VitalsSample(
+        rider_id=rider_id, timestamp=_number(payload, "timestamp"), quality=quality,
+        heart_rate_bpm=rate if quality == "good" else None,
+        rmssd_ms=_number(payload, "rmssd_ms", required=False),
+        perfusion_index=_number(payload, "perfusion_index", required=False),
+        waveform=tuple(float(v) for v in waveform))

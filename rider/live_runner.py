@@ -8,6 +8,7 @@ What leaves the board (contract: docs/API.md):
     riders/{id}/fatigue_score  {"timestamp", "score"}      1 Hz, only while perception is valid
     riders/{id}/health         {"timestamp", "perception"}  1 Hz, always
     riders/{id}/demo_state     EAR/MAR/PERCLOS/pitch/reasons — ONLY while demo mode is on
+    riders/{id}/vitals         heart rate / pulse wave from the MAX30102 — ONLY while demo mode is on
 
 Run on the board:
     cd /home/fatigue-detection
@@ -45,6 +46,11 @@ PERCEPTION_NO_FACE = "no_face"
 PERCEPTION_CAMERA_ERROR = "camera_error"
 
 NO_FACE_AFTER_SEC = 1.5      # a blink-length detection miss is not a fault
+# Beyond this head turn the eye/mouth ratios are measured on a profile and are
+# not evidence of anything: seen live, a rider looking sideways at a laptop read
+# EAR 0.14 ("closed") for minutes and ran the score to the cap. Such frames are
+# treated like a gap in the data — neither closed nor open, no accrual, no decay.
+MAX_YAW_FOR_FEATURES_DEG = 25.0
 NO_FRAME_AFTER_SEC = 2.0
 
 
@@ -147,7 +153,15 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
         frames += 1
         window_frames += 1
 
-        if features is not None:
+        turned_away = features is not None and abs(features["yaw_deg"]) > MAX_YAW_FOR_FEATURES_DEG
+        if turned_away:
+            faces += 1
+            previous = live.result
+            live.set(last_face_at=frame_ts, frames=frames, faces=faces, detection={
+                "at": frame_ts, "geometry": analyzer.last_geometry, "features": features, "turned_away": True,
+                "score": previous["score"] if previous else 0.0, "perclos": previous["perclos"] if previous else 0.0,
+                "reasons": [], "inference_fps": live.inference_fps})
+        elif features is not None:
             faces += 1
             # frame_ts (capture time), not "now": scoring must follow when the
             # eyes were closed, not when inference happened to finish.
@@ -155,7 +169,7 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
             result = scorer.update(timestamp=frame_ts, ear=features["ear"], mar=features["mar"],
                                    head_pitch_deg=features["head_pitch_deg"], perclos=perclos)
             result.update(ear=features["ear"], mar=features["mar"], perclos=perclos,
-                          head_pitch_deg=features["head_pitch_deg"])
+                          head_pitch_deg=features["head_pitch_deg"], yaw_deg=features["yaw_deg"])
             detection = {"at": frame_ts, "geometry": analyzer.last_geometry, "features": features,
                          "score": result["score"], "perclos": perclos, "reasons": result["reasons"],
                          "inference_fps": live.inference_fps}
@@ -186,7 +200,8 @@ def perception_status(source: LatestFrameSource, snapshot: dict, now: float) -> 
 REASON_NAMES = {"head_drop": "head_down", "head_drop_visual_only_no_imu": "head_down", "audio_bonus": "audio"}
 
 
-def publish_loop(source, stream_state, live: LiveState, transports, args, stop: threading.Event) -> None:
+def publish_loop(source, stream_state, live: LiveState, transports, args, stop: threading.Event,
+                 ppg=None) -> None:
     root = f"riders/{args.rider_id}"
     interval = 1.0 / args.publish_hz
     recent_reasons = {}  # reason -> last time it fired; events are instants, the UI refreshes at 1 Hz
@@ -212,7 +227,14 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
                     "timestamp": result["timestamp"], "ear": round(result["ear"], 3),
                     "mar": round(result["mar"], 3), "perclos": round(result["perclos"], 3),
                     "head_pitch_deg": round(result["head_pitch_deg"], 1),
+                    "yaw_deg": round(result["yaw_deg"], 1),
                     "inference_fps": round(snap["inference_fps"], 1), "reasons": shown})
+
+        # Physiological data is more sensitive than the score, so it follows the
+        # same operator switch as the video: nothing in normal mode.
+        vitals = ppg.latest() if ppg is not None else None
+        if vitals is not None and stream_state.demo and now - vitals["timestamp"] <= 3.0:
+            send("vitals", vitals)
 
         if now - last_log >= 5.0:
             last_log = now
@@ -220,7 +242,8 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
             score = result["score"] if result else None
             print(f"[{args.rider_id}] perception={perception} score={score} "
                   f"infer={snap['inference_fps']:.1f}fps face_rate={rate:.0f}% "
-                  f"mode={'demo' if stream_state.demo else 'normal'}", flush=True)
+                  f"mode={'demo' if stream_state.demo else 'normal'}"
+                  + (f" ppg={vitals['quality']} hr={vitals['heart_rate_bpm']}" if vitals else ""), flush=True)
 
 
 def main() -> None:
@@ -237,6 +260,9 @@ def main() -> None:
                              "fastest, but its detector misses low-angle faces (see scripts/benchmark_npu.py)")
     parser.add_argument("--max-inference-fps", type=float, default=20.0,
                         help="cap, so inference leaves CPU for capture + streaming; 0 = uncapped")
+    parser.add_argument("--ppg", default="auto", choices=["auto", "off"],
+                        help="MAX30102 heart-rate sensor; auto = use it if it answers on the I2C bus")
+    parser.add_argument("--i2c-bus", type=int, default=0)
     parser.add_argument("--no-overlay", action="store_true",
                         help="stream the raw picture without the DMS face box / mesh / status text")
     parser.add_argument("--perclos-window", type=float, default=30.0,
@@ -272,8 +298,17 @@ def main() -> None:
     live, stop = LiveState(), threading.Event()
     if not args.no_overlay:
         stream_state.annotate = lambda frame: overlay.draw(frame, live.detection, time.time())
+    ppg = None
+    if args.ppg == "auto":
+        try:
+            from ppg_reader import PpgMonitor, PpgUnavailable
+            ppg = PpgMonitor(args.i2c_bus)
+            ppg.start()
+            print("ppg: MAX30102 found, heart rate enabled (published in demo mode only)", flush=True)
+        except Exception as exc:  # no sensor / rail off / smbus2 missing: carry on without vitals
+            print(f"ppg: not available ({exc}); continuing without heart rate", flush=True)
     threading.Thread(target=publish_loop, name="publisher", daemon=True,
-                     args=(source, stream_state, live, transports, args, stop)).start()
+                     args=(source, stream_state, live, transports, args, stop, ppg)).start()
     try:
         inference_loop(source, analyzer, live, args, stop)
     except KeyboardInterrupt:

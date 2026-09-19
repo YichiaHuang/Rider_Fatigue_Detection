@@ -21,6 +21,7 @@ Topic 格式 `riders/{rider_id}/{kind}`，payload 都是 JSON，QoS 0。第一�
 | `fatigue_score` | **固定節奏持續送（建議 1 Hz）**，不是超標才送 | `{"timestamp": 1789746935.9, "score": 12.4}` |
 | `health` | 持續送（建議 1 Hz），**感知失效時也要送** | `{"timestamp": ..., "perception": "ok"}` |
 | `demo_state` | **只在展示模式送**；一般模式完全不送 | 見下 |
+| `vitals` | **只在展示模式送**（生理數據比分數更敏感，跟影像用同一個開關）；每秒一次 | 見下 |
 
 - `timestamp`：板子時鐘，epoch 秒（浮點數）。
 - `score`：Stage A 累積分數。平台用 `pause_threshold`（15）／`resume_threshold`（8）判斷暫停與恢復。
@@ -32,6 +33,19 @@ Topic 格式 `riders/{rider_id}/{kind}`，payload 都是 JSON，QoS 0。第一�
 {"timestamp": 1789746935.9, "ear": 0.19, "mar": 0.08, "perclos": 0.31,
  "head_pitch_deg": 9.5, "inference_fps": 12.1, "reasons": ["perclos", "yawn"]}
 ```
+
+`vitals`（MAX30102 PPG 心率，`rider/ppg_reader.py`）：
+
+```json
+{"timestamp": 1789746935.9, "quality": "good", "heart_rate_bpm": 72.4, "rmssd_ms": 38.0,
+ "perfusion_index": 0.8, "waveform": [0.02, 0.10, 0.45, ...]}
+```
+
+- `quality`：`no_contact`（IR 低於 50000，沒貼到皮膚）｜`settling`（剛接觸，還不到 8 秒）｜`weak`（有訊號但兩種估計不一致或週期性太差）｜`good`。
+- **`heart_rate_bpm` 只有在 `good` 時才有值**，其餘一律 `null`；平台端也會把非 `good` 的心率丟掉。寧可沒有數字，不顯示猜的數字。
+- `rmssd_ms`：約 40 秒穩定訊號後才有，僅供參考（50 Hz 取樣、手指／耳垂量測，不是醫療級 HRV）。
+- `waveform`：最近 6 秒帶通後的脈搏波，150 點、範圍 −1～1，純顯示用。最多 400 點。
+- 平台端 5 秒沒收到就清掉，不會留著舊的心率。**目前心率只顯示、不參與疲勞評分。**
 
 `reasons` 目前網頁認得 `perclos`、`yawn`、`head_down`、`audio`（對照表在 `web/js/utils/format.js`），其他字串會原樣顯示。
 
@@ -72,6 +86,7 @@ curl -X POST http://<筆電>:8000/api/ingest/rider-01/fatigue_score \
   "dispatch": "normal",        // normal | paused —— 熔斷器狀態，訊號中斷時凍結
   "status": "normal",          // normal | paused | unknown —— 網頁顯示用
   "detail": null,              // demo_state 的內容；5 秒沒更新自動清掉
+  "vitals": null,              // vitals 的內容（心率）；同樣 5 秒沒更新自動清掉
   "history": [[1789746930.1, 11.8], ...]   // 只有 /api/state 帶
 }
 ```

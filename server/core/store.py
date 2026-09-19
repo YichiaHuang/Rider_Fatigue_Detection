@@ -23,7 +23,7 @@ from collections import deque
 
 from ..config import SOURCE_REAL, Config, RiderSpec
 from .circuit_breaker import DISPATCH_PAUSED, CircuitBreaker
-from .models import PERCEPTION_OK, PERCEPTION_UNKNOWN, DetailSample, HealthSample, ScoreSample
+from .models import PERCEPTION_OK, PERCEPTION_UNKNOWN, DetailSample, HealthSample, ScoreSample, VitalsSample
 
 LINK_WAITING = "waiting"
 LINK_ONLINE = "online"
@@ -48,6 +48,8 @@ class _Rider:
         self.received_at = None     # server clock; used for staleness and chart x
         self.detail = None
         self.detail_received_at = None
+        self.vitals = None
+        self.vitals_received_at = None
         self.perception = PERCEPTION_UNKNOWN
         self.health_received_at = None
         self.link = LINK_WAITING
@@ -132,6 +134,17 @@ class RiderStore:
             self._emit("rider", self._rider_dict(rider, now))
             return True
 
+    def ingest_vitals(self, sample: VitalsSample) -> bool:
+        with self._lock:
+            rider = self._get_or_register(sample.rider_id)
+            if rider is None:
+                return False
+            now = self._clock()
+            rider.vitals = sample
+            rider.vitals_received_at = now
+            self._emit("rider", self._rider_dict(rider, now))
+            return True
+
     def ingest_health(self, sample: HealthSample) -> bool:
         with self._lock:
             rider = self._get_or_register(sample.rider_id)
@@ -153,11 +166,11 @@ class RiderStore:
         with self._lock:
             now = self._clock()
             for rider in self._riders.values():
-                before = (rider.link, rider.status, rider.detail is None)
+                before = (rider.link, rider.status, rider.detail is None, rider.vitals is None)
                 self._refresh(rider, now)
                 if before[0] != rider.link and rider.link in (LINK_STALE, LINK_OFFLINE):
                     self._add_event(rider, f"link_{rider.link}", rider.score, now)
-                if before != (rider.link, rider.status, rider.detail is None):
+                if before != (rider.link, rider.status, rider.detail is None, rider.vitals is None):
                     self._emit("rider", self._rider_dict(rider, now))
 
     # ---- reads (api layer) ---------------------------------------------
@@ -213,6 +226,11 @@ class RiderStore:
             rider.detail = None
             rider.detail_received_at = None
 
+        # Same for vitals: a heart rate from a minute ago is not a heart rate.
+        if rider.vitals_received_at is not None and now - rider.vitals_received_at >= self.config.stale_after_sec:
+            rider.vitals = None
+            rider.vitals_received_at = None
+
         perception_fault = rider.perception not in (PERCEPTION_OK, PERCEPTION_UNKNOWN)
         if rider.link != LINK_ONLINE or perception_fault:
             rider.status = STATUS_UNKNOWN
@@ -244,4 +262,5 @@ class RiderStore:
             "dispatch": rider.breaker.state,
             "status": rider.status,
             "detail": rider.detail.to_dict() if rider.detail is not None else None,
+            "vitals": rider.vitals.to_dict() if rider.vitals is not None else None,
         }
