@@ -2,7 +2,8 @@
 // function, no DOM — the one place that decides "normal / warning / paused".
 //
 //   paused   the platform's circuit breaker has paused new orders (score >= pause, until <= resume)
-//   warning  score >= warn_threshold; holds until score <= resume_threshold, so a
+//   warning  score >= warn_threshold; holds until the score is at least 2 points
+//            below that line (or under resume_threshold, whichever is lower), so a
 //            score hovering around the line doesn't make the phone chime on and off
 //   unknown  no trustworthy signal (board offline, no face, camera fault) — and
 //            the platform has not paused the rider
@@ -19,6 +20,7 @@ export function deriveLevel(appState, config, previousLevel) {
   const rider = appState.rider;
   if (rider.status === 'unknown' || rider.score == null) return LEVEL_UNKNOWN;
   if (rider.score >= config.warn_threshold) return LEVEL_WARNING;
-  if (previousLevel === LEVEL_WARNING && rider.score > config.resume_threshold) return LEVEL_WARNING;
+  const clearBelow = Math.min(config.resume_threshold, config.warn_threshold - 2);
+  if (previousLevel === LEVEL_WARNING && rider.score > clearBelow) return LEVEL_WARNING;
   return LEVEL_NORMAL;
 }

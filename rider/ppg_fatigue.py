@@ -83,7 +83,7 @@ class PpgFatigueConfig:
     rmssd_rise_pct: float = 25.0       # ... AND recent RMSSD at least this far ABOVE baseline
     sustain_sec: float = 120.0         # the pattern must hold this long before it adds anything
     bonus_rate_per_sec: float = 1.0 / 30.0   # then +1 point per 30 s ...
-    bonus_cap: float = 6.0                   # ... up to here: below the app's warning line (10) by design
+    bonus_cap: float = 6.0                   # ... up to here: below the app's warning line (8) by design
     bonus_decay_per_sec: float = 1.0 / 15.0  # pattern gone: back down twice as fast as it came
     stale_after_sec: float = 120.0     # no good signal for this long: stop freezing, let the bonus decay
     baseline_max_age_sec: float = 12 * 3600.0   # a saved, finished baseline is reused for one shift

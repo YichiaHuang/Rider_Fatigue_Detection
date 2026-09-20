@@ -64,7 +64,7 @@ class StageAConfig:
     # Both are overridable at start-up: --mar-threshold / --yawn-cooldown.
     mar_yawn_threshold: float = 0.4
     # 2026-09-19 evening, tried on the live board and reverted: 7 (the yawn weight of NXP's
-    # GoPoint DMS demo, YAWN_PENALTY = 7) and 5. Against the app's warning line (10) and the
+    # GoPoint DMS demo, YAWN_PENALTY = 7) and 5. Against the app's warning line (8) and the
     # pause line (15), at 7 two yawns warned and a third paused; at 5 three paused. With the
     # DMS mouth line (0.3) a big laugh counts as a yawn too, so both were too heavy. Back to 3:
     # a yawn nudges the score, sustained eye closure (PERCLOS) is what carries it over a line.

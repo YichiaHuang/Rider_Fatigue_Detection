@@ -73,7 +73,7 @@ class Config:
     simulator_hz: float = 1.0
 
     # --- rider app (app/): early warning + demo orders ---
-    warn_threshold: float = 10.0     # app warns the rider here, before dispatch pauses at pause_threshold
+    warn_threshold: float = 8.0      # app warns the rider here, before dispatch pauses at pause_threshold (team: 10 was too close to 15)
     run_order_simulator: bool = True
     offer_timeout_sec: float = 30.0  # unanswered offer expires
     order_gap_sec: tuple = (6.0, 14.0)  # idle time before the next simulated offer (short: it's a demo)
