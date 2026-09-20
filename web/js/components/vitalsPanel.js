@@ -92,7 +92,11 @@ export function createVitalsPanel() {
       fatigue.hidden = !vitals.fatigue;
       if (vitals.fatigue) {
         fatigue.dataset.state = vitals.fatigue.state;
-        fatigueState.textContent = FATIGUE_TEXT[vitals.fatigue.state] || vitals.fatigue.state;
+        // "no_signal" after the baseline is learned means "nothing current to compare":
+        // say so, or it reads as if the baseline were lost.
+        fatigueState.textContent = vitals.fatigue.state === 'no_signal' && vitals.fatigue.baseline_hr_bpm != null
+          ? '心率疲勞指標：基準已建立，等待目前的心率訊號（戴穩約 1–2 分鐘後判定）'
+          : FATIGUE_TEXT[vitals.fatigue.state] || vitals.fatigue.state;
         fatigueNumbers.textContent = fatigueDetail(vitals.fatigue);
       }
       node.dataset.quality = vitals.quality;
