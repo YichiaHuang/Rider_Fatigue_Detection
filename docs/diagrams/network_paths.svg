@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1270" height="390" viewBox="0 0 1270 390" role="img" aria-label="網路路徑：平台經 SSH 通道連到板子本機的 Mosquitto，另以 HTTP 直連板子 8080；Windows 上的儀表板連 WSL 的 8000；iPhone 經 Tailscale Funnel 的公開 HTTPS 網址轉到 localhost 8008。">
+<style>svg{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC","Segoe UI",sans-serif}
+
+  .zone { fill: #f0efec; stroke: #dddcd6; }
+  .sub-zone { fill: none; stroke: #c3c2b7; stroke-dasharray: 2 4; }
+  .box { fill: #fcfcfb; stroke: #c3c2b7; stroke-width: 1.2; }
+  .box-off { fill: none; stroke: #c3c2b7; stroke-width: 1.2; stroke-dasharray: 2 4; }
+  .zh { font-size: 14px; font-weight: 700; fill: #0b0b0b; }
+  .zs { font-size: 11.5px; font-weight: 400; fill: #898781; }
+  .t { font-size: 13px; font-weight: 600; fill: #0b0b0b; text-anchor: middle; }
+  .s { font-size: 11px; fill: #52514e; text-anchor: middle; }
+  .m { font-family: Consolas,"Cascadia Mono",Menlo,monospace; }
+  .l { font-size: 10.5px; font-weight: 600; fill: #52514e; }
+  .c { text-anchor: middle; }
+  .l-mqtt { fill: #2a78d6; } .l-http { fill: #7a4fd0; } .l-sse { fill: #0e8f84; } .l-rest { fill: #c8600a; }
+  .e { fill: none; stroke: #6b6a65; stroke-width: 1.6; }
+  .e-mqtt { stroke: #2a78d6; } .e-http { stroke: #7a4fd0; } .e-sse { stroke: #0e8f84; } .e-rest { stroke: #c8600a; }
+  .dashed { stroke-dasharray: 6 4; }
+  .f-ink { fill: #6b6a65; } .f-mqtt { fill: #2a78d6; } .f-http { fill: #7a4fd0; } .f-sse { fill: #0e8f84; } .f-rest { fill: #c8600a; }
+
+  </style>
+<rect width="1270" height="390" fill="#fcfcfb"/>
+<defs>
+    <marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-ink"/></marker>
+    <marker id="a-mqtt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-mqtt"/></marker>
+    <marker id="a-http" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-http"/></marker>
+    <marker id="a-sse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-sse"/></marker>
+    <marker id="a-rest" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-rest"/></marker>
+  </defs>
+  <rect class="zone" x="20" y="50" width="270" height="320" rx="12"/>
+  <text class="zh" x="36" y="78">板子 i.MX93</text>
+  <rect class="zone" x="450" y="50" width="480" height="320" rx="12"/>
+  <text class="zh" x="466" y="78">筆電</text>
+  <rect class="sub-zone" x="466" y="88" width="254" height="268" rx="10"/>
+  <text class="zs" x="478" y="349">WSL2</text>
+  <text class="zs" x="740" y="178">Windows</text>
+
+  <rect class="box" x="40" y="100" width="230" height="50" rx="8"/>
+  <text class="t m" x="155" y="130">sshd :22</text>
+  <rect class="box" x="40" y="190" width="230" height="50" rx="8"/>
+  <text class="t" x="155" y="211">Mosquitto</text><text class="s m" x="155" y="229">只聽 127.0.0.1:1883</text>
+  <rect class="box" x="40" y="290" width="230" height="50" rx="8"/>
+  <text class="t" x="155" y="311">HTTP 伺服器</text><text class="s m" x="155" y="329">0.0.0.0:8080</text>
+  <path class="e e-mqtt" d="M155,150 V190" marker-end="url(#a-mqtt)"/>
+  <text class="l l-mqtt" x="164" y="174">轉到本機 :1883</text>
+
+  <text class="zs c" x="370" y="66">熱點區網，連不到就走</text>
+  <text class="zs c" x="370" y="82">Tailscale 100.71.95.53</text>
+
+  <rect class="box" x="482" y="100" width="222" height="50" rx="8"/>
+  <text class="t m" x="593" y="121" style="font-size:11.5px">ssh -N -L 1883:127.0.0.1:1883</text><text class="s" x="593" y="139">在筆電的 127.0.0.1:1883 聆聽</text>
+  <rect class="box" x="482" y="190" width="222" height="140" rx="8"/>
+  <text class="t m" x="593" y="252">python3 -m server</text><text class="s" x="593" y="272">:8000 與 :8008 是同一個 app</text>
+  <path class="e e-mqtt" d="M593,190 V150" marker-end="url(#a-mqtt)"/>
+  <text class="l l-mqtt" x="602" y="174">MQTT → 本機 :1883</text>
+
+  <path class="e e-mqtt" d="M482,125 H270" marker-start="url(#a-mqtt)" marker-end="url(#a-mqtt)"/>
+  <text class="l l-mqtt c" x="376" y="116">SSH 加密通道</text>
+  <text class="l l-mqtt c" x="376" y="142">有監看，斷線自動重連</text>
+  <path class="e e-http" d="M482,315 H270" marker-start="url(#a-http)" marker-end="url(#a-http)"/>
+  <text class="l l-http c" x="376" y="306">HTTP 直連 :8080</text>
+  <text class="l l-http c" x="376" y="332">MJPEG · 模式 · 重設</text>
+
+  <rect class="box" x="740" y="190" width="174" height="50" rx="8"/>
+  <text class="t" x="827" y="211">Edge 儀表板</text><text class="s m" x="827" y="229">http://&lt;WSL IP&gt;:8000</text>
+  <rect class="box" x="740" y="280" width="174" height="50" rx="8"/>
+  <text class="t" x="827" y="301">Tailscale Funnel</text><text class="s m" x="827" y="319">→ localhost:8008</text>
+  <path class="e e-sse" d="M740,215 H704" marker-end="url(#a-sse)"/>
+  <path class="e e-rest" d="M740,305 H704" marker-end="url(#a-rest)"/>
+
+  <rect class="box" x="1090" y="280" width="160" height="50" rx="8"/>
+  <text class="t" x="1170" y="301">iPhone 騎手 App</text><text class="s" x="1170" y="319">行動網路</text>
+  <path class="e e-rest" d="M1090,305 H914" marker-end="url(#a-rest)"/>
+  <text class="l l-rest c" x="1006" y="296">HTTPS 公開網址</text>
+  <text class="l l-rest c m" x="1006" y="322">*.ts.net/app/</text>
+</svg>

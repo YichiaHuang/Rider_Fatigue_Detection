@@ -123,6 +123,7 @@ legacy/platform_streamlit/  舊版 Streamlit 平台端，已被 server/ + web/ �
 tests/                  單元測試＋假 broker＋HTTP 端到端
 tools/fake_rider.py     假裝成板子發訊息
 tools/make_app_icons.py 產生 App 的 PNG 圖示（純標準函式庫）
+tools/revive.sh         板子斷電重開後一行救回：板子服務＋runner、MQTT 通道＋儀表板、手機網址
 tools/share_app.sh      給手機一個 HTTPS 網址（Cloudflare 臨時通道），壞了自動換一條
 docs/API.md             資料接口
 ```

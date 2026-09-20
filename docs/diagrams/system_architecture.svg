@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="660" viewBox="0 0 1400 660" role="img" aria-label="系統架構：板子上的攝影機與心率感測器經推論與評分後，每秒用 MQTT 經 SSH 通道送到平台；平台用 SSE 推給儀表板、讓騎手 App 每秒輪詢；影像只在展示模式經平台代理送出。">
+  <style>svg{font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC","Segoe UI",sans-serif}
+
+  .zone { fill: #f0efec; stroke: #dddcd6; }
+  .sub-zone { fill: none; stroke: #c3c2b7; stroke-dasharray: 2 4; }
+  .box { fill: #fcfcfb; stroke: #c3c2b7; stroke-width: 1.2; }
+  .box-off { fill: none; stroke: #c3c2b7; stroke-width: 1.2; stroke-dasharray: 2 4; }
+  .zh { font-size: 14px; font-weight: 700; fill: #0b0b0b; }
+  .zs { font-size: 11.5px; font-weight: 400; fill: #898781; }
+  .t { font-size: 13px; font-weight: 600; fill: #0b0b0b; text-anchor: middle; }
+  .s { font-size: 11px; fill: #52514e; text-anchor: middle; }
+  .m { font-family: Consolas,"Cascadia Mono",Menlo,monospace; }
+  .l { font-size: 10.5px; font-weight: 600; fill: #52514e; }
+  .c { text-anchor: middle; }
+  .l-mqtt { fill: #2a78d6; } .l-http { fill: #7a4fd0; } .l-sse { fill: #0e8f84; } .l-rest { fill: #c8600a; }
+  .e { fill: none; stroke: #6b6a65; stroke-width: 1.6; }
+  .e-mqtt { stroke: #2a78d6; } .e-http { stroke: #7a4fd0; } .e-sse { stroke: #0e8f84; } .e-rest { stroke: #c8600a; }
+  .dashed { stroke-dasharray: 6 4; }
+  .f-ink { fill: #6b6a65; } .f-mqtt { fill: #2a78d6; } .f-http { fill: #7a4fd0; } .f-sse { fill: #0e8f84; } .f-rest { fill: #c8600a; }
+
+  </style>
+<rect width="1400" height="660" fill="#fcfcfb"/>
+<defs>
+    <marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-ink"/></marker>
+    <marker id="a-mqtt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-mqtt"/></marker>
+    <marker id="a-http" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-http"/></marker>
+    <marker id="a-sse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-sse"/></marker>
+    <marker id="a-rest" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-rest"/></marker>
+  </defs>
+
+  <!-- zones -->
+  <rect class="zone" x="20" y="50" width="580" height="520" rx="12"/>
+  <text class="zh" x="40" y="78">板子 · NXP i.MX93 FRDM <tspan class="zs" dx="8">機車上 · rider/live_runner.py</tspan></text>
+  <rect class="zone" x="750" y="50" width="300" height="520" rx="12"/>
+  <text class="zh" x="766" y="78">平台 server/ <tspan class="zs" dx="8">筆電 WSL · 純標準函式庫</tspan></text>
+  <text class="zh" x="1200" y="78">使用者端</text>
+
+  <!-- board: sensors -->
+  <rect class="box" x="40" y="100" width="130" height="56" rx="8"/>
+  <text class="t" x="105" y="124">USB 攝影機 C270</text><text class="s" x="105" y="142">640×480 · 15 FPS</text>
+  <rect class="box" x="40" y="370" width="130" height="56" rx="8"/>
+  <text class="t" x="105" y="394">MAX30102 心率</text><text class="s" x="105" y="412">PPG 50 Hz · 18-bit</text>
+  <rect class="box-off" x="40" y="460" width="355" height="56" rx="8"/>
+  <text class="t" x="217" y="484">MPU6050 IMU（I²C 0x68）· 麥克風</text><text class="s" x="217" y="502">模組已寫好，尚未接進線上評分</text>
+
+  <!-- board: processing -->
+  <rect class="box" x="215" y="100" width="180" height="56" rx="8"/>
+  <text class="t" x="305" y="124">單一影格來源</text><text class="s" x="305" y="142">只留最新 1 張，慢就丟舊幀</text>
+  <rect class="box" x="215" y="190" width="180" height="56" rx="8"/>
+  <text class="t" x="305" y="214">DMS 推論 ≈ 15 FPS</text><text class="s" x="305" y="232">人臉 CPU · 網格／虹膜 NPU</text>
+  <rect class="box" x="215" y="280" width="180" height="56" rx="8"/>
+  <text class="t" x="305" y="304">Stage A 規則評分</text><text class="s" x="305" y="322">PERCLOS · 哈欠 → 0–30 分</text>
+  <rect class="box" x="215" y="370" width="180" height="56" rx="8"/>
+  <text class="t" x="305" y="394">心率 DSP＋疲勞指標</text><text class="s" x="305" y="412">獨立子行程 · 加分 0–6</text>
+
+  <!-- board: outputs -->
+  <rect class="box" x="440" y="100" width="140" height="56" rx="8"/>
+  <text class="t" x="510" y="124">HTTP 伺服器 :8080</text><text class="s" x="510" y="142">展示模式才送 MJPEG</text>
+  <rect class="box" x="440" y="280" width="140" height="56" rx="8"/>
+  <text class="t" x="510" y="304">發布器 1 Hz</text><text class="s" x="510" y="322">min(30, 影像＋心率)</text>
+  <rect class="box" x="440" y="370" width="140" height="56" rx="8"/>
+  <text class="t" x="510" y="394">Mosquitto broker</text><text class="s m" x="510" y="412">127.0.0.1:1883</text>
+
+  <!-- board edges -->
+  <path class="e" d="M170,128 H215" marker-end="url(#a-ink)"/>
+  <text class="l c" x="192" y="119">USB</text><text class="l c" x="192" y="145">V4L2</text>
+  <path class="e e-http dashed" d="M395,128 H440" marker-end="url(#a-http)"/>
+  <path class="e" d="M305,156 V190" marker-end="url(#a-ink)"/>
+  <path class="e" d="M305,246 V280" marker-end="url(#a-ink)"/>
+  <text class="l" x="314" y="267">EAR · MAR · 頭部姿態</text>
+  <path class="e" d="M395,296 H440" marker-end="url(#a-ink)"/>
+  <path class="e" d="M170,398 H215" marker-end="url(#a-ink)"/>
+  <text class="l c" x="192" y="389">I²C</text><text class="l c m" x="192" y="415">0x57</text>
+  <path class="e" d="M395,385 H418 V322 H440" marker-end="url(#a-ink)"/>
+  <path class="e e-mqtt" d="M510,336 V370" marker-end="url(#a-mqtt)"/>
+  <text class="l l-mqtt" x="519" y="357">本機 publish</text>
+
+  <!-- board <-> platform -->
+  <path class="e e-http dashed" d="M580,118 H766" marker-end="url(#a-http)"/>
+  <text class="l l-http c" x="673" y="109">MJPEG · 展示模式才有</text>
+  <path class="e e-http" d="M766,140 H580" marker-end="url(#a-http)"/>
+  <text class="l l-http c" x="673" y="156">POST /mode · /reset</text>
+  <path class="e e-mqtt" d="M580,398 H766" marker-end="url(#a-mqtt)"/>
+  <text class="l l-mqtt c" x="673" y="389">MQTT 3.1.1 · QoS 0 · 1 Hz</text>
+  <text class="l l-mqtt c" x="673" y="415">經 SSH 通道（-L 1883）</text>
+
+  <!-- platform boxes -->
+  <rect class="box" x="766" y="100" width="160" height="56" rx="8"/>
+  <text class="t m" x="846" y="124">api/board_proxy</text><text class="s" x="846" y="142">只拉一路影像再分送</text>
+  <rect class="box" x="766" y="190" width="160" height="56" rx="8"/>
+  <text class="t m" x="846" y="214">core/orders</text><text class="s" x="846" y="232">訂單 · 上線 · 派單規則</text>
+  <rect class="box" x="766" y="280" width="160" height="56" rx="8"/>
+  <text class="t m" x="846" y="304">core/store</text><text class="s" x="846" y="322">連線狀態 · 熔斷器 · 事件</text>
+  <rect class="box" x="766" y="370" width="160" height="56" rx="8"/>
+  <text class="t m" x="846" y="394">sources/mqtt_source</text><text class="s" x="846" y="412">自製 MQTT 3.1.1 客戶端</text>
+  <rect class="box" x="766" y="460" width="160" height="56" rx="8"/>
+  <text class="t m" x="846" y="484">sources/routing</text><text class="s" x="846" y="502">路線快取 · 失敗退回估計</text>
+  <rect class="box" x="950" y="100" width="86" height="416" rx="8"/>
+  <text class="t m" x="993" y="262">api/</text>
+  <text class="s" x="993" y="284">REST</text><text class="s" x="993" y="300">SSE</text><text class="s" x="993" y="316">靜態檔</text>
+  <text class="s m" x="993" y="344">:8000</text><text class="s m" x="993" y="360">:8008</text>
+
+  <!-- platform edges -->
+  <path class="e" d="M800,370 V336" marker-end="url(#a-ink)"/>
+  <text class="l m" x="809" y="357">ingest_message()</text>
+  <path class="e" d="M800,280 V246" marker-start="url(#a-ink)" marker-end="url(#a-ink)"/>
+  <text class="l" x="809" y="267">可否派單？</text>
+  <path class="e" d="M926,128 H950" marker-end="url(#a-ink)"/>
+  <path class="e" d="M926,218 H950" marker-end="url(#a-ink)"/>
+  <path class="e" d="M926,308 H950" marker-end="url(#a-ink)"/>
+  <path class="e" d="M926,488 H950" marker-end="url(#a-ink)"/>
+  <path class="e" d="M846,516 V596" marker-end="url(#a-ink)"/>
+  <text class="l" x="855" y="548">HTTPS · 需要時才查</text>
+  <rect class="box" x="766" y="596" width="160" height="44" rx="8"/>
+  <text class="t" x="846" y="623">OSRM 路線服務</text>
+
+  <!-- clients -->
+  <rect class="box" x="1200" y="140" width="180" height="110" rx="8"/>
+  <text class="t" x="1290" y="186">派單儀表板 web/</text><text class="s" x="1290" y="206">瀏覽器 · 原生 ES modules</text><text class="s" x="1290" y="222">分數曲線 · 事件 · 即時影像</text>
+  <rect class="box" x="1200" y="330" width="180" height="110" rx="8"/>
+  <text class="t" x="1290" y="376">騎手 App app/</text><text class="s" x="1290" y="396">PWA · iPhone／Android</text><text class="s" x="1290" y="412">接單 · 導航 · 疲勞提醒</text>
+  <rect class="box" x="1200" y="596" width="180" height="44" rx="8"/>
+  <text class="t" x="1290" y="623">OpenStreetMap 圖磚</text>
+
+  <path class="e e-sse" d="M1036,165 H1200" marker-end="url(#a-sse)"/>
+  <text class="l l-sse c" x="1125" y="156">SSE /api/events 推送</text>
+  <path class="e e-rest" d="M1036,200 H1200" marker-start="url(#a-rest)" marker-end="url(#a-rest)"/>
+  <text class="l l-rest c" x="1125" y="191">REST 快照 · 模式／重設</text>
+  <path class="e e-http dashed" d="M1036,235 H1200" marker-end="url(#a-http)"/>
+  <text class="l l-http c" x="1125" y="226">MJPEG（同源代理）</text>
+
+  <path class="e e-rest" d="M1036,360 H1200" marker-start="url(#a-rest)" marker-end="url(#a-rest)"/>
+  <text class="l l-rest c" x="1125" y="351">每秒輪詢 GET state</text>
+  <path class="e e-rest" d="M1200,395 H1036" marker-end="url(#a-rest)"/>
+  <text class="l l-rest c" x="1125" y="386">POST 上線 · 接單 · 確認</text>
+  <text class="l c" x="1125" y="420">HTTPS 通道 → :8008</text>
+  <path class="e" d="M1290,440 V596" marker-end="url(#a-ink)"/>
+  <text class="l" x="1299" y="522">HTTPS 圖磚</text>
+</svg>
