@@ -134,11 +134,13 @@ class PerclosTracker:
         self._samples.clear()
         self.observed_sec = 0.0
 
-    def update(self, timestamp: float, ear: float) -> float:
+    def update(self, timestamp: float, ear: float, closed: "bool | None" = None) -> float:
+        """closed: the caller's own eyes-closed verdict for this frame (e.g. the NXP
+        DMS rule, which looks at both eyes separately); None = ear < ear_closed_threshold."""
         if self._samples:
             previous = self._samples[-1]
             previous[2] = min(max(0.0, timestamp - previous[0]), self.max_gap_sec)
-        self._samples.append([timestamp, ear < self.ear_closed_threshold, 0.0])
+        self._samples.append([timestamp, ear < self.ear_closed_threshold if closed is None else closed, 0.0])
         cutoff = timestamp - self.window_seconds
         while self._samples and self._samples[0][0] < cutoff:
             self._samples.popleft()

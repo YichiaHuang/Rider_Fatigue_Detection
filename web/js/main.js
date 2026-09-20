@@ -35,7 +35,8 @@ async function start() {
     },
   });
   const primary = createPrimaryRider(
-    document.getElementById('primary-readout'), document.getElementById('primary-chart'), config);
+    document.getElementById('primary-readout'), document.getElementById('primary-chart'), config,
+    { onReset: (riderId) => api.resetBoardScore(riderId) });
   const eventLog = createEventLog(document.getElementById('events'));
 
   // Video focus: big camera picture, the rest of the dashboard shrinks around it.

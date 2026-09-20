@@ -25,6 +25,7 @@ Endpoints:
   GET  /snapshot.jpg single JPEG                (demo mode only)
   GET  /status       JSON: mode, camera health, fps, viewers
   POST /mode         {"demo": true|false}       (needs the token if one is set)
+  POST /reset        {}  -> the live runner zeroes its fatigue score (demo: "bring it back down")
 
 Run:
     python3 rider/stream_server.py                       # USB camera, normal mode
@@ -78,6 +79,10 @@ class StreamState:
         self._lock = threading.Lock()
         self._demo = demo
         self._viewers = 0
+        # Operator's "reset the fatigue score" (dashboard button). The runner's
+        # loops watch this counter and zero their state when it moves.
+        self.reset_seq = 0
+        self.reset_at = None
 
         self._jpeg_cond = threading.Condition()
         self._jpeg = None
@@ -95,6 +100,12 @@ class StreamState:
             with self._jpeg_cond:
                 self._jpeg = None
                 self._jpeg_cond.notify_all()  # wake streaming clients so they hang up
+
+    def request_reset(self) -> int:
+        with self._lock:
+            self.reset_seq += 1
+            self.reset_at = time.time()
+            return self.reset_seq
 
     def add_viewer(self, delta: int) -> None:
         with self._lock:
@@ -188,6 +199,7 @@ class StreamState:
         return {
             "mode": "demo" if self._demo else "normal",
             "viewers": self._viewers,
+            "resets": self.reset_seq,
             "stream_fps": round(self.stream_fps_measured, 1),
             "quality": {"tier": self.tier, "width": self.tiers[self.tier][0],
                         "jpeg_quality": self.tiers[self.tier][1], "adaptive": self.adaptive},
@@ -280,12 +292,17 @@ def make_handler(state: StreamState):
                 self._json(404, {"error": "not found"})
 
         def do_POST(self):
-            if self.path.split("?", 1)[0] != "/mode":
+            path = self.path.split("?", 1)[0]
+            if path not in ("/mode", "/reset"):
                 return self._json(404, {"error": "not found"})
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b"{}"
             if state.token and self.headers.get("X-Token") != state.token:
                 return self._json(403, {"error": "bad token"})
+            if path == "/reset":
+                seq = state.request_reset()
+                sys.stderr.write(f"fatigue score reset #{seq} requested (by {self.address_string()})\n")
+                return self._json(200, state.status())
             try:
                 want = json.loads(raw)["demo"]
             except (ValueError, KeyError, TypeError):

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Same drawing as tools/make_app_icons.py: the app's fatigue gauge at 60 %. -->
+  <rect width="512" height="512" rx="112" fill="#0d0d0d"/>
+  <g fill="none" stroke-width="44" stroke-linecap="round">
+    <path d="M 116 316 A 140 140 0 0 1 396 316" stroke="#383835"/>
+    <path d="M 116 316 A 140 140 0 0 1 299.3 182.9" stroke="#3987e5"/>
+  </g>
+  <circle cx="256" cy="316" r="26" fill="#ffffff"/>
+</svg>

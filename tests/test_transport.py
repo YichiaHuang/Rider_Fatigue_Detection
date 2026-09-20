@@ -12,6 +12,7 @@ import urllib.request
 from server.api.board_proxy import BoardProxy
 from server.api.http_server import build_server
 from server.config import Config
+from server.core.models import ScoreSample
 from server.core.store import RiderStore
 from server.sources.mqtt_source import MqttSource
 
@@ -175,6 +176,28 @@ class HttpApiTest(unittest.TestCase):
         self.assertEqual((json.loads(body)["reachable"], json.loads(body)["configured"]), (False, True))
         self.assertFalse(json.loads(self.get("/api/board/rider-02/status")[2])["configured"])
         self.assertEqual(self.post("/api/board/rider-02/mode", {"demo": True})[0], 404)
+        self.assertEqual(self.post("/api/board/rider-02/reset", {})[0], 404)
+
+    def test_reset_keeps_a_keep_alive_connection_usable(self):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        try:
+            for _ in range(2):  # the second request used to arrive as "{}POST ..." -> 501
+                conn.request("POST", "/api/board/rider-01/reset", body=b"{}", headers={"Content-Type": "application/json"})
+                resp = conn.getresponse()
+                resp.read()
+                self.assertEqual(resp.status, 502, "unreachable board, but a well-formed answer")
+        finally:
+            conn.close()
+
+    def test_reset_needs_the_board(self):
+        for score in (3, 16):
+            self.post("/api/ingest/rider-01/fatigue_score", {"timestamp": time.time(), "score": score})
+        self.assertEqual(self.store.rider("rider-01")["dispatch"], "paused")
+        code, body = self.post("/api/board/rider-01/reset", {})
+        self.assertEqual((code, body["reachable"]), (502, False))
+        self.assertEqual(self.store.rider("rider-01")["dispatch"], "paused",
+                         "the board did not zero its score, so the platform must not lift the pause")
 
     def test_static_and_traversal(self):
         code, content_type, body = self.get("/")
@@ -188,17 +211,31 @@ class HttpApiTest(unittest.TestCase):
 
 
 class FakeBoard:
-    """Minimal rider/stream_server.py stand-in: counts upstream connections."""
+    """Minimal rider/stream_server.py stand-in: counts upstream connections and resets."""
 
     def __init__(self, demo=True):
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         board = self
         self.connections = 0
+        self.resets = 0
         self.demo = demo
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                if self.path != "/reset":
+                    self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
+                    return
+                board.resets += 1
+                body = json.dumps({"mode": "demo" if board.demo else "normal", "resets": board.resets}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
 
             def do_GET(self):
                 if not board.demo:
@@ -221,6 +258,31 @@ class FakeBoard:
         self.server.daemon_threads = True
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+
+class ResetApiTest(unittest.TestCase):
+    """Dashboard "reset fatigue score": board zeroed AND the platform's pause lifted, in that order."""
+
+    def test_reset_reaches_the_board_and_lifts_the_pause(self):
+        board = FakeBoard()
+        config = Config(http_host="127.0.0.1", http_port=0)
+        store = RiderStore(config)
+        server = build_server(config, store, {"rider-01": BoardProxy(board.url, "")}, [], "web")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+            for score in (3, 16):
+                store.ingest_score(ScoreSample("rider-01", time.time(), score))
+            self.assertEqual(store.rider("rider-01")["dispatch"], "paused")
+            request = urllib.request.Request(f"{base}/api/board/rider-01/reset", data=b"{}", method="POST",
+                                             headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=5) as resp:
+                body = json.loads(resp.read())
+            self.assertEqual((body["reachable"], body["resets"], board.resets), (True, 1, 1))
+            self.assertEqual(store.rider("rider-01")["dispatch"], "normal")
+            self.assertEqual(store.snapshot()["events"][-1]["kind"], "score_reset")
+        finally:
+            server.shutdown()
 
 
 class RelayTest(unittest.TestCase):

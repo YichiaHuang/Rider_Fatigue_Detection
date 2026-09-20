@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>騎手夥伴</title>
+  <meta name="description" content="外送接單＋疲勞提醒">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="騎手夥伴">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <section class="screen" id="screen-login" hidden></section>
+
+    <section class="screen" id="screen-home" hidden>
+      <header class="topbar" id="topbar"></header>
+      <div class="banner" id="banner" role="status" hidden></div>
+      <main class="home">
+        <section class="card" id="fatigue" aria-label="疲勞狀態"></section>
+        <section id="duty"></section>
+        <section id="orders" aria-live="polite"></section>
+        <section class="stats" id="stats" aria-label="今日統計"></section>
+      </main>
+    </section>
+
+    <section class="nav-screen" id="nav" aria-label="導航" hidden></section>
+    <div class="alert-overlay" id="alert" role="alertdialog" aria-modal="true" hidden></div>
+    <div class="sheet-backdrop" id="settings" hidden></div>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </div>
+  <noscript>這個 App 需要開啟 JavaScript。</noscript>
+  <script>
+    // Boot guard (plain script, runs even when the modules below fail to load or
+    // parse): a blank page tells nobody anything, so show the error on screen and,
+    // if nothing has appeared after 10 s, say so with what this browser is.
+    (function () {
+      var shown = false;
+      function report(title, detail) {
+        if (shown) return; shown = true;
+        var box = document.createElement('div');
+        box.setAttribute('style', 'position:fixed;inset:auto 0 0 0;z-index:99;padding:16px;background:#d03b3b;color:#fff;font:15px/1.5 system-ui,sans-serif;white-space:pre-wrap;word-break:break-all');
+        box.textContent = title + '\n' + detail + '\n\n' + navigator.userAgent;
+        document.body.appendChild(box);
+      }
+      window.addEventListener('error', function (e) {
+        if (window.__riderAppStarted) return;  // the app is up; a later runtime error is the app's business
+        var src = e.filename ? ' @ ' + e.filename.replace(location.origin, '') + ':' + e.lineno : '';
+        report('App 啟動失敗', (e.message || (e.target && e.target.src ? '載入失敗 ' + e.target.src.replace(location.origin, '') : String(e))) + src);
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason; report('App 啟動失敗', (r && (r.stack || r.message)) || String(r));
+      });
+      setTimeout(function () {
+        if (!window.__riderAppStarted) report('App 啟動逾時（10 秒內沒有畫面）', 'serviceWorker: ' + ('serviceWorker' in navigator) + ', secure: ' + window.isSecureContext + ', leaflet: ' + (typeof window.L));
+      }, 10000);
+    })();
+  </script>
+  <script defer src="vendor/leaflet/leaflet.js"></script>  <!-- window.L; runs before the module below -->
+  <!-- Loaded with a dynamic import: a plain <script type="module" src> that fails on
+       iOS only reports "Script error." (WebKit mutes module errors served through
+       the service worker); the rejected promise still carries the real message. -->
+  <script type="module">
+    import('./js/main.js').catch((e) => {
+      window.__riderAppStarted = true;  // the timeout box would only hide this one
+      var box = document.createElement('div');
+      box.setAttribute('style', 'position:fixed;inset:auto 0 0 0;z-index:99;padding:16px;background:#d03b3b;color:#fff;font:15px/1.5 system-ui,sans-serif;white-space:pre-wrap;word-break:break-all');
+      box.textContent = 'App 啟動失敗（模組載入）\n' + (e && (e.stack || e.message) || String(e)) + '\n\n' + navigator.userAgent;
+      document.body.appendChild(box);
+    });
+  </script>
+</body>
+</html>

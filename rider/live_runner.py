@@ -10,6 +10,12 @@ What leaves the board (contract: docs/API.md):
     riders/{id}/demo_state     EAR/MAR/PERCLOS/pitch/reasons — ONLY while demo mode is on
     riders/{id}/vitals         heart rate / pulse wave from the MAX30102 — ONLY while demo mode is on
 
+Multimodal score: what is published is  min(cap, visual Stage A score + PPG bonus).
+The PPG bonus (rider/ppg_fatigue.py) rises slowly while heart rate sits below and
+RMSSD above this rider's own baseline for minutes, and is capped below the app's
+warning line — physiology can bring the thresholds closer, only the camera can
+cross them. --no-score-ppg turns it off (the heart rate is then display-only).
+
 Run on the board:
     cd /home/fatigue-detection
     python3 rider/live_runner.py                                   # publish to the local broker
@@ -38,6 +44,8 @@ from frame_source import LatestFrameSource  # noqa: E402
 from guardian_helmet_bridge import build_dms_frame_source  # noqa: E402
 import overlay  # noqa: E402
 from layer_b_features import PerclosTracker  # noqa: E402
+import ppg_fatigue  # noqa: E402
+from ppg_fatigue import PpgFatigueConfig, PpgFatigueIndicator  # noqa: E402
 from stage_a_scoring import StageAConfig, StageAScorer  # noqa: E402
 from stream_server import add_stream_arguments, start_stream_service  # noqa: E402
 
@@ -51,6 +59,13 @@ NO_FACE_AFTER_SEC = 1.5      # a blink-length detection miss is not a fault
 # EAR 0.14 ("closed") for minutes and ran the score to the cap. Such frames are
 # treated like a gap in the data — neither closed nor open, no accrual, no decay.
 MAX_YAW_FOR_FEATURES_DEG = 25.0
+
+# --criteria dms: the per-frame lines NXP's own DMS demo draws its "Yawning" /
+# "Eye: Closed" labels with (guardian_helmet_dms/main.py). The DMS only labels
+# single frames — a blink is "Closed" — so the time logic on top (PERCLOS window,
+# yawn events, decay, pause/resume) stays Stage A's either way.
+DMS_EYE_CLOSED_RATIO = 0.2   # main.py: left_eye_ratio < 0.2 AND right_eye_ratio < 0.2
+DMS_YAWN_RATIO = 0.3         # main.py: mouth_ratio > 0.3
 NO_FRAME_AFTER_SEC = 2.0
 
 
@@ -125,7 +140,9 @@ class LiveState:
                     "inference_fps": self.inference_fps, "frames": self.frames, "faces": self.faces}
 
 
-def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, stop: threading.Event) -> None:
+def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, stop: threading.Event,
+                   stream_state=None) -> None:
+    dms_criteria = args.criteria == "dms"
     perclos_tracker = PerclosTracker(window_seconds=args.perclos_window)
     scorer = StageAScorer(StageAConfig(mar_yawn_threshold=args.mar_threshold,
                                        yawn_cooldown_sec=args.yawn_cooldown,
@@ -136,9 +153,18 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
     errors, last_error_log = 0, 0.0
     window_start, window_frames = time.time(), 0
     min_interval = 1.0 / args.max_inference_fps if args.max_inference_fps else 0.0
+    seen_reset = stream_state.reset_seq if stream_state is not None else 0
 
     while not stop.is_set():
         tick = time.time()
+        if stream_state is not None and stream_state.reset_seq != seen_reset:
+            # Dashboard "reset": score, yawn cooldown, head-down timer and the
+            # PERCLOS window all start over, so a demo can be run again from zero.
+            seen_reset = stream_state.reset_seq
+            scorer.reset()
+            perclos_tracker.reset()
+            live.set(result=None)
+            print(f"[{args.rider_id}] fatigue score reset #{seen_reset}: Stage A + PERCLOS window zeroed", flush=True)
         seq, frame_ts, frame = source.wait_for_frame(after_seq=last_seq, timeout=1.0)
         if frame is None:
             continue
@@ -176,10 +202,14 @@ def inference_loop(source: LatestFrameSource, analyzer, live: LiveState, args, s
             faces += 1
             # frame_ts (capture time), not "now": scoring must follow when the
             # eyes were closed, not when inference happened to finish.
-            perclos = perclos_tracker.update(frame_ts, features["ear"])
+            closed = (features["left_eye_ratio"] < DMS_EYE_CLOSED_RATIO
+                      and features["right_eye_ratio"] < DMS_EYE_CLOSED_RATIO) if dms_criteria else None
+            perclos = perclos_tracker.update(frame_ts, features["ear"], closed)
             result = scorer.update(timestamp=frame_ts, ear=features["ear"], mar=features["mar"],
                                    head_pitch_deg=features["head_pitch_deg"], perclos=perclos)
             result.update(ear=features["ear"], mar=features["mar"], perclos=perclos,
+                          eyes_closed=closed if closed is not None else features["ear"] < 0.21,
+                          yawning=features["mar"] > args.mar_threshold,
                           head_pitch_deg=features["head_pitch_deg"], yaw_deg=features["yaw_deg"])
             detection = {"at": frame_ts, "geometry": analyzer.last_geometry, "features": features,
                          "score": result["score"], "perclos": perclos, "reasons": result["reasons"],
@@ -212,16 +242,42 @@ REASON_NAMES = {"head_drop": "head_down", "head_drop_visual_only_no_imu": "head_
 
 
 def publish_loop(source, stream_state, live: LiveState, transports, args, stop: threading.Event,
-                 ppg=None) -> None:
+                 ppg=None, ppg_indicator=None) -> None:
     root = f"riders/{args.rider_id}"
     interval = 1.0 / args.publish_hz
     recent_reasons = {}  # reason -> last time it fired; events are instants, the UI refreshes at 1 Hz
     last_log = 0.0
+    max_score = StageAConfig().max_score  # the PPG bonus must not lift the total past Stage A's own cap
+    last_baseline_save, saved_baseline_at = 0.0, None  # PPG baseline file (see ppg_fatigue.py: it must survive restarts)
+    seen_reset = stream_state.reset_seq
     while not stop.wait(interval):
         now = time.time()
+        if stream_state.reset_seq != seen_reset:  # the PPG bonus is this loop's share of the reset
+            seen_reset = stream_state.reset_seq
+            recent_reasons.clear()
+            if ppg_indicator is not None:
+                ppg_indicator.clear_pattern()
+            # Say "0" right now, face or no face: the operator pressing the button is
+            # usually not the one in front of the camera, and without a face no
+            # score is published, so the dashboard would sit on the old number.
+            for transport in transports:
+                transport.send(f"{root}/fatigue_score", {"timestamp": now, "score": 0.0})
         snap = live.snapshot()
         perception = perception_status(source, snap, now)
         result = snap["result"]
+
+        # Physiology runs on its own clock, face or no face: the baseline keeps
+        # learning and the pattern keeps being timed while the rider looks away.
+        vitals = ppg.latest() if ppg is not None else None
+        if vitals is not None and now - vitals["timestamp"] > 3.0:
+            vitals = None
+        ppg_bonus = ppg_indicator.update(now, vitals) if ppg_indicator is not None else 0.0
+        if ppg_indicator is not None and args.ppg_baseline_file:
+            finished_now = ppg_indicator.baseline_learned_at != saved_baseline_at
+            learning = ppg_indicator.baseline_hr is None and now - last_baseline_save >= 30.0
+            if finished_now or learning:  # every 30 s while learning, once more the moment it is finished
+                ppg_fatigue.save_state(args.ppg_baseline_file, ppg_indicator.export_state(now))
+                last_baseline_save, saved_baseline_at = now, ppg_indicator.baseline_learned_at
 
         def send(kind, payload):
             for transport in transports:
@@ -229,7 +285,10 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
 
         send("health", {"timestamp": now, "perception": perception})
         if perception == PERCEPTION_OK and result is not None:
-            send("fatigue_score", {"timestamp": result["timestamp"], "score": result["score"]})
+            total = round(min(max_score, result["score"] + ppg_bonus), 2)
+            send("fatigue_score", {"timestamp": result["timestamp"], "score": total})
+            if ppg_bonus > 0:
+                recent_reasons["ppg"] = now
             for reason in result["reasons"]:
                 if reason != "turned_away":
                     recent_reasons[REASON_NAMES.get(reason, reason)] = now
@@ -242,15 +301,16 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
                     "ear": None if result["ear"] is None else round(result["ear"], 3),
                     "mar": None if result["mar"] is None else round(result["mar"], 3),
                     "perclos": round(result["perclos"], 3),
+                    "eyes_closed": result.get("eyes_closed"), "yawning": result.get("yawning"),
                     "head_pitch_deg": round(result["head_pitch_deg"], 1),
                     "yaw_deg": round(result["yaw_deg"], 1),
+                    "score_visual": result["score"], "ppg_bonus": round(ppg_bonus, 2),
                     "inference_fps": round(snap["inference_fps"], 1), "reasons": shown})
 
         # Physiological data is more sensitive than the score, so it follows the
         # same operator switch as the video: nothing in normal mode.
-        vitals = ppg.latest() if ppg is not None else None
-        if vitals is not None and stream_state.demo and now - vitals["timestamp"] <= 3.0:
-            send("vitals", vitals)
+        if vitals is not None and stream_state.demo:
+            send("vitals", {**vitals, "fatigue": ppg_indicator.snapshot()} if ppg_indicator is not None else vitals)
 
         if now - last_log >= 5.0:
             last_log = now
@@ -259,7 +319,9 @@ def publish_loop(source, stream_state, live: LiveState, transports, args, stop: 
             print(f"[{args.rider_id}] perception={perception} score={score} "
                   f"infer={snap['inference_fps']:.1f}fps face_rate={rate:.0f}% "
                   f"mode={'demo' if stream_state.demo else 'normal'}"
-                  + (f" ppg={vitals['quality']} hr={vitals['heart_rate_bpm']}" if vitals else ""), flush=True)
+                  + (f" ppg={vitals['quality']} hr={vitals['heart_rate_bpm']}" if vitals else "")
+                  + (f" ppg_fatigue={ppg_indicator.state} bonus={ppg_bonus:.1f}" if ppg_indicator is not None else ""),
+                  flush=True)
 
 
 def main() -> None:
@@ -276,12 +338,28 @@ def main() -> None:
                              "fastest, but its detector misses low-angle faces (see scripts/benchmark_npu.py)")
     parser.add_argument("--max-inference-fps", type=float, default=20.0,
                         help="cap, so inference leaves CPU for capture + streaming; 0 = uncapped")
+    parser.add_argument("--no-score-ppg", action="store_true",
+                        help="heart rate is shown but does not touch the fatigue score")
+    parser.add_argument("--ppg-baseline-file", default=None,
+                        help="where this rider's PPG baseline is kept between restarts "
+                             "(default: /var/tmp/rider_ppg_baseline_<rider id>.json; empty string = don't keep it)")
+    parser.add_argument("--ppg-new-baseline", action="store_true",
+                        help="forget the saved PPG baseline and learn a new one - REQUIRED when a different person "
+                             "wears the sensor: the indicator compares a person with their own earlier numbers")
+    parser.add_argument("--ppg-demo", action="store_true",
+                        help="PPG indicator with SHORT time constants (45 s baseline, 30 s window, 20 s sustain) so the "
+                             "mechanism can be shown in minutes. Not for real use: the standards are 300 / 120 / 120 s")
     parser.add_argument("--ppg", default="auto", choices=["auto", "off"],
                         help="MAX30102 heart-rate sensor; auto = use it if it answers on the I2C bus")
     parser.add_argument("--i2c-bus", type=int, default=0)
     defaults = StageAConfig()
-    parser.add_argument("--mar-threshold", type=float, default=defaults.mar_yawn_threshold,
-                        help="mouth-open (yawn) event when MAR rises above this")
+    parser.add_argument("--criteria", choices=("tuned", "dms"), default="dms",
+                        help="per-frame eye/mouth lines: 'tuned' = this project's (mean eye ratio < 0.21, MAR > "
+                             f"{defaults.mar_yawn_threshold}); 'dms' = NXP DMS demo's own (both eye ratios < "
+                             f"{DMS_EYE_CLOSED_RATIO}, MAR > {DMS_YAWN_RATIO})")
+    parser.add_argument("--mar-threshold", type=float, default=None,
+                        help=f"mouth-open (yawn) event when MAR rises above this (default: {defaults.mar_yawn_threshold}, "
+                             f"or {DMS_YAWN_RATIO} with --criteria dms)")
     parser.add_argument("--yawn-cooldown", type=float, default=defaults.yawn_cooldown_sec,
                         help="seconds before another mouth-open event can score")
     parser.add_argument("--perclos-threshold", type=float, default=defaults.perclos_threshold,
@@ -296,6 +374,11 @@ def main() -> None:
     parser.add_argument("--perclos-window", type=float, default=30.0,
                         help="seconds. DEMO SETTING: 30 so eye closure shows within a demo; 60 for real use")
     args = parser.parse_args()
+    if args.mar_threshold is None:  # resolved here: the start-up banner and the overlay read it too
+        args.mar_threshold = DMS_YAWN_RATIO if args.criteria == "dms" else defaults.mar_yawn_threshold
+    print(f"criteria: {args.criteria} (eyes closed when "
+          + (f"BOTH eye ratios < {DMS_EYE_CLOSED_RATIO}" if args.criteria == "dms" else "mean eye ratio < 0.21")
+          + f"; yawn when MAR > {args.mar_threshold})", flush=True)
 
     source = LatestFrameSource(args.device, width=args.width, height=args.height, fps=args.capture_fps)
     source.start()
@@ -306,8 +389,11 @@ def main() -> None:
         transports.append(MqttTransport(args.mqtt_host, args.mqtt_port, args.rider_id))
     if args.http:
         transports.append(HttpTransport(args.http))
-    print(f"stage A: MAR>{args.mar_threshold} (+3, cooldown {args.yawn_cooldown}s), "
-          f"PERCLOS>{args.perclos_threshold} (+2/s), decay {args.decay_per_sec}/s, "
+    # Read the weights from the config actually loaded: they get tuned by editing
+    # stage_a_scoring.py on the board, and a hard-coded "+3" here kept claiming the old value.
+    print(f"stage A: MAR>{args.mar_threshold} (+{defaults.yawn_add:g}, cooldown {args.yawn_cooldown}s), "
+          f"PERCLOS>{args.perclos_threshold} (+{defaults.perclos_add:g}/s), decay {args.decay_per_sec}/s, "
+          f"cap {defaults.max_score:g}, "
           f"head-down {'SCORED' if args.score_head_down else 'shown only, not scored'}", flush=True)
     print(f"rider {args.rider_id}: publishing to {[t.name for t in transports] or 'NOWHERE'}; "
           f"perclos window {args.perclos_window:.0f}s", flush=True)
@@ -341,10 +427,33 @@ def main() -> None:
             print("ppg: MAX30102 found, heart rate enabled (published in demo mode only)", flush=True)
         except Exception as exc:  # no sensor / rail off / smbus2 missing: carry on without vitals
             print(f"ppg: not available ({exc}); continuing without heart rate", flush=True)
+    ppg_indicator = None
+    if ppg is not None and not args.no_score_ppg:
+        ppg_config = PpgFatigueConfig.demo() if args.ppg_demo else PpgFatigueConfig()
+        ppg_indicator = PpgFatigueIndicator(ppg_config)
+        if args.ppg_baseline_file is None:
+            args.ppg_baseline_file = f"/var/tmp/rider_ppg_baseline_{args.rider_id}.json"
+        saved = None if args.ppg_new_baseline or not args.ppg_baseline_file else ppg_fatigue.load_state(args.ppg_baseline_file)
+        if args.ppg_new_baseline:
+            print("ppg fatigue: --ppg-new-baseline: learning this rider's baseline from scratch", flush=True)
+        elif saved is not None:
+            outcome = ppg_indicator.restore_state(saved, time.time())
+            print({"baseline": f"ppg fatigue: reusing the saved baseline ({ppg_indicator.baseline_hr:.0f} bpm, RMSSD "
+                               f"{ppg_indicator.baseline_rmssd:.0f} ms, learned "
+                               f"{(time.time() - ppg_indicator.baseline_learned_at) / 60.0:.0f} min ago). "
+                               "Different person wearing it? restart with --ppg-new-baseline"
+                               if outcome == "baseline" else "",
+                   "partial": f"ppg fatigue: resuming an unfinished baseline ({saved.get('partial_valid_sec', 0):.0f} s "
+                              f"of {ppg_config.baseline_sec:.0f} s already collected)"}.get(
+                       outcome, f"ppg fatigue: saved baseline {outcome}; learning a new one"), flush=True)
+        print(f"ppg fatigue: ON{' (DEMO time constants)' if args.ppg_demo else ''} - baseline {ppg_config.baseline_sec:.0f}s, "
+              f"pattern = HR <= -{ppg_config.hr_drop_pct:.0f}% AND RMSSD >= +{ppg_config.rmssd_rise_pct:.0f}% over "
+              f"{ppg_config.window_sec:.0f}s, sustained {ppg_config.sustain_sec:.0f}s -> up to +{ppg_config.bonus_cap:.0f} points",
+              flush=True)
     threading.Thread(target=publish_loop, name="publisher", daemon=True,
-                     args=(source, stream_state, live, transports, args, stop, ppg)).start()
+                     args=(source, stream_state, live, transports, args, stop, ppg, ppg_indicator)).start()
     try:
-        inference_loop(source, analyzer, live, args, stop)
+        inference_loop(source, analyzer, live, args, stop, stream_state)
     except KeyboardInterrupt:
         pass
     finally:

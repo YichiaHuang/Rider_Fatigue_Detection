@@ -37,7 +37,6 @@ REG_LED1_PA, REG_LED2_PA, REG_PART_ID = 0x0C, 0x0D, 0xFF
 FIFO_CONFIG, SPO2_CONFIG, LED_PA, MODE_SPO2 = 0x3F, 0x27, 0x24, 0x03
 SAMPLE_HZ = 50.0          # 100 sps / FIFO averaging of 2
 WINDOW_SEC = 12.0
-HRV_WINDOW_SEC = 40.0     # RMSSD needs more beats than the rate does
 
 
 class PpgUnavailable(Exception):
@@ -116,8 +115,11 @@ class PpgMonitor:
 
     def __init__(self, bus: int = 0):
         self._sensor = Max30102(bus)
-        self._samples = deque(maxlen=int(SAMPLE_HZ * HRV_WINDOW_SEC))  # (t, ir)
+        self._samples = deque(maxlen=int(SAMPLE_HZ * (WINDOW_SEC + 1.0)))  # (t, ir)
         self._tracker = ppg_dsp.RateTracker()
+        # Survives contact blips and FIFO overflows on purpose: those are exactly the
+        # interruptions RMSSD has to be computed around. Entries simply age out.
+        self._differences = ppg_dsp.SuccessiveDifferenceLog()
         self.overflows = 0
 
     def run(self, emit, should_stop) -> None:
@@ -156,13 +158,17 @@ class PpgMonitor:
         result = ppg_dsp.analyze([t for t, _ in recent], [v for _, v in recent])
         if result["quality"] == ppg_dsp.QUALITY_NO_CONTACT:
             self._samples.clear()
-        elif result["quality"] == ppg_dsp.QUALITY_GOOD and samples[-1][0] - samples[0][0] >= HRV_WINDOW_SEC * 0.9:
-            long_run = ppg_dsp.analyze([t for t, _ in samples], [v for _, v in samples])
-            if long_run["quality"] == ppg_dsp.QUALITY_GOOD:
-                result["rmssd_ms"] = long_run["rmssd_ms"]
+        beat_pairs = result.pop("beat_pairs", [])
         # One window only yields a candidate; the tracker decides what is shown
         # (needs several consistent seconds to lock, then rides out brief dropouts).
         result = self._tracker.update(now, result)
+        # Beats count towards HRV only from seconds the tracker confirmed: a lone
+        # window that happens to pass every gate is still only a candidate.
+        if result["quality"] == ppg_dsp.QUALITY_GOOD:
+            self._differences.add(beat_pairs)
+        rmssd, pairs = self._differences.rmssd_ms(now)
+        result["rmssd_ms"] = rmssd if result["quality"] in (ppg_dsp.QUALITY_GOOD, ppg_dsp.QUALITY_HOLDING) else None
+        result["rmssd_pairs"] = pairs   # how much the RMSSD rests on: pairs pooled over the last 60 s (30 needed)
         contact = result["quality"] != ppg_dsp.QUALITY_NO_CONTACT
         result["waveform"] = ppg_dsp.display_waveform([t for t, _ in recent], [v for _, v in recent]) if contact else []
         result["timestamp"] = now

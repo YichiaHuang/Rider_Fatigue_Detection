@@ -145,5 +145,95 @@ class TrackerTest(unittest.TestCase):
         self.assertEqual(result["quality"], "good", result)
 
 
+
+def beating_finger(seconds, sd_ms, rsa_ms, interruptions=(), bpm=78.0, seed=7):
+    """A pulse wave with KNOWN beat-to-beat variability (random + breathing-linked),
+    plus what happens on a real finger: ("lift", start, length) = contact lost,
+    ("move", start, length) = fidgeting. Returns (t, ir, true RMSSD in ms)."""
+    rng = random.Random(seed)
+    beats, now = [0.0], 0.0
+    while now < seconds + 2:
+        now += max(0.35, 60.0 / bpm + rsa_ms / 1000.0 * math.sin(2 * math.pi * now / 4.2) + rng.gauss(0, sd_ms / 1000.0))
+        beats.append(now)
+    rr = [b - a for a, b in zip(beats, beats[1:])]
+    truth = 1000.0 * math.sqrt(sum((y - x) ** 2 for x, y in zip(rr, rr[1:])) / (len(rr) - 1))
+    t, ir, k = [], [], 0
+    for i in range(int(seconds * FS)):
+        now = i / FS
+        while beats[k + 1] <= now:
+            k += 1
+        p = (now - beats[k]) / (beats[k + 1] - beats[k])
+        value = (120000.0 - 900.0 * (math.exp(-((p - 0.18) / 0.07) ** 2) + 0.35 * math.exp(-((p - 0.45) / 0.10) ** 2))
+                 + 1500.0 * math.sin(2 * math.pi * now / 9.0) + rng.gauss(0, 60.0))
+        for kind, start, length in interruptions:
+            if start <= now < start + length:
+                value = 2000.0 + rng.gauss(0, 30) if kind == "lift" else value + rng.uniform(-6000, 6000)
+        t.append(now)
+        ir.append(value)
+    return t, ir, truth
+
+
+def replay_reader(t, ir):
+    """What ppg_reader does once a second, offline. -> (good seconds, RMSSD readings on good seconds)."""
+    tracker, log, good, readings = ppg_dsp.RateTracker(), ppg_dsp.SuccessiveDifferenceLog(), 0, []
+    for sec in range(12, int(t[-1])):
+        hi = int(sec * FS)
+        window = ppg_dsp.analyze(t[hi - int(12 * FS):hi], ir[hi - int(12 * FS):hi])
+        pairs = window.pop("beat_pairs")
+        if tracker.update(float(sec), window)["quality"] == "good":
+            good += 1
+            log.add(pairs)
+            value, _ = log.rmssd_ms(float(sec))
+            if value is not None:
+                readings.append(value)
+    return good, readings
+
+
+INTERRUPTED = tuple(("lift", s, 1.5) for s in range(30, 170, 35)) + tuple(("move", s, 3.0) for s in range(20, 170, 25))
+
+
+class InterruptedRmssdTest(unittest.TestCase):
+    """The sensor on a real finger is interrupted every half minute or so. RMSSD used
+    to need 40 unbroken seconds and came out in ~5 % of good seconds on the board."""
+
+    def median(self, values):
+        return sorted(values)[len(values) // 2]
+
+    def test_rmssd_is_available_through_interruptions(self):
+        t, ir, _ = beating_finger(170, sd_ms=25, rsa_ms=20, interruptions=INTERRUPTED)
+        starts = sorted(s for _, s, _ in INTERRUPTED)
+        self.assertLess(max(b - a for a, b in zip(starts, starts[1:])), 40, "no 40 s stretch is ever free of an interruption")
+        good, readings = replay_reader(t, ir)
+        self.assertGreater(good, 40)
+        self.assertGreater(len(readings) / good, 0.6, "RMSSD must be there on most good seconds, interrupted or not")
+
+    def test_interruptions_do_not_change_the_answer(self):
+        clean = self.median(replay_reader(*beating_finger(170, 25, 20)[:2])[1])
+        broken = self.median(replay_reader(*beating_finger(170, 25, 20, INTERRUPTED)[:2])[1])
+        self.assertLess(abs(broken - clean) / clean, 0.15, (clean, broken))
+
+    def test_fidgeting_must_not_look_like_rising_hrv(self):
+        """A rise in RMSSD is what the fatigue indicator reads as drowsiness."""
+        fidgets = tuple(("move", s, 3.0) for s in range(20, 170, 25))
+        clean = self.median(replay_reader(*beating_finger(170, 25, 20)[:2])[1])
+        moved = self.median(replay_reader(*beating_finger(170, 25, 20, fidgets)[:2])[1])
+        self.assertLess(moved, clean * 1.2, (clean, moved))   # was +65 % before beats next to a burst were excluded
+
+    def test_more_variability_reads_higher(self):
+        readings = [self.median(replay_reader(*beating_finger(170, sd, rsa, INTERRUPTED)[:2])[1])
+                    for sd, rsa in ((10, 8), (25, 20), (40, 35))]   # true RMSSD ~16, ~40, ~64 ms
+        self.assertTrue(readings[0] < readings[1] < readings[2], readings)
+        self.assertGreater(readings[2] / readings[1], 1.3, "a +60 % rise must stay clearly visible")
+
+    def test_log_counts_each_beat_once_and_waits_for_enough(self):
+        log = ppg_dsp.SuccessiveDifferenceLog(window_sec=60.0, min_pairs=5)
+        pairs = [(10.0 + i * 0.8, 0.80, 0.83) for i in range(4)]
+        self.assertEqual(log.add(pairs), 4)
+        self.assertEqual(log.add(pairs), 0, "the next window sees the same beats again")
+        self.assertEqual(log.rmssd_ms(14.0), (None, 4))
+        log.add([(14.0, 0.80, 0.83)])
+        self.assertEqual(log.rmssd_ms(15.0), (30.0, 5))
+        self.assertEqual(log.rmssd_ms(200.0), (None, 0), "old beats age out")
+
 if __name__ == "__main__":
     unittest.main()

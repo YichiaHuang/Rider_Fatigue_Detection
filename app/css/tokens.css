@@ -1,0 +1,79 @@
+/* Design tokens for the rider app — the only file with raw colour values.
+   Same palette as the dashboard (web/css/tokens.css) so both read as one
+   product; kept as a copy because app/ must stay self-contained (it is also
+   what gets wrapped into a store build). */
+
+:root {
+  color-scheme: light;
+  --page:            #f9f9f7;
+  --surface-1:       #fcfcfb;
+  --surface-2:       #f0efec;
+  --text-primary:    #0b0b0b;
+  --text-secondary:  #52514e;
+  --text-muted:      #898781;
+  --grid:            #e1e0d9;
+  --axis:            #c3c2b7;
+  --border:          rgba(11, 11, 11, 0.10);
+
+  --series-1:        #2a78d6;   /* fatigue score line */
+  --series-1-wash:   rgba(42, 120, 214, 0.10);
+
+  /* status: reserved for state, always shipped with icon + label */
+  --status-good:     #0ca30c;
+  --status-warning:  #fab219;
+  --status-critical: #d03b3b;
+  --status-unknown:  #898781;
+  --status-good-wash:     rgba(12, 163, 12, 0.10);
+  --status-critical-wash: rgba(208, 59, 59, 0.10);
+  --status-unknown-wash:  rgba(137, 135, 129, 0.14);
+
+  --font: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --radius: 10px;
+  --gap: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:            #0d0d0d;
+    --surface-1:       #1a1a19;
+    --surface-2:       #262624;
+    --text-primary:    #ffffff;
+    --text-secondary:  #c3c2b7;
+    --text-muted:      #898781;
+    --grid:            #2c2c2a;
+    --axis:            #383835;
+    --border:          rgba(255, 255, 255, 0.10);
+    --series-1:        #3987e5;
+    --series-1-wash:   rgba(57, 135, 229, 0.12);
+    --status-good-wash:     rgba(12, 163, 12, 0.16);
+    --status-critical-wash: rgba(208, 59, 59, 0.18);
+    --status-unknown-wash:  rgba(137, 135, 129, 0.18);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:            #0d0d0d;
+  --surface-1:       #1a1a19;
+  --surface-2:       #262624;
+  --text-primary:    #ffffff;
+  --text-secondary:  #c3c2b7;
+  --text-muted:      #898781;
+  --grid:            #2c2c2a;
+  --axis:            #383835;
+  --border:          rgba(255, 255, 255, 0.10);
+  --series-1:        #3987e5;
+  --series-1-wash:   rgba(57, 135, 229, 0.12);
+  --status-good-wash:     rgba(12, 163, 12, 0.16);
+  --status-critical-wash: rgba(208, 59, 59, 0.18);
+  --status-unknown-wash:  rgba(137, 135, 129, 0.18);
+}
+
+/* App-only roles */
+:root {
+  --status-warning-wash: rgba(250, 178, 25, 0.18);
+  --on-status:       #ffffff;   /* text on --status-good / --status-critical fills */
+  --on-warning:      #0b0b0b;   /* amber needs dark text to stay readable in sunlight */
+  --tap: 56px;                  /* minimum touch target: gloves, handlebar mount */
+}

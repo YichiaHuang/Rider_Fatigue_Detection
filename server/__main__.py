@@ -10,7 +10,8 @@ themselves as soon as they publish; to reserve a slot and attach video:
     python3 -m server --mqtt-host 127.0.0.1 --real rider-01,rider-02 \
         --board rider-01=http://172.20.10.3:8080 --board rider-02=http://172.20.10.4:8080
 
-Then open http://localhost:8000/
+Then open http://localhost:8000/ (dashboard) and http://<this machine>:8000/app/
+on a phone (rider app — see docs/APP.md for how to reach it from a phone).
 """
 from __future__ import annotations
 
@@ -23,11 +24,16 @@ import threading
 from .api.board_proxy import BoardProxy
 from .api.http_server import build_server
 from .config import SOURCE_REAL, SOURCE_SIMULATED, Config, RiderSpec
+from .core.orders import OrderBook
 from .core.store import RiderStore
 from .sources.mqtt_source import MqttSource
+from .sources.order_simulator import OrderSimulatorSource
+from .sources.routing import RoutePlanner
 from .sources.simulator import SimulatorSource
 
-WEB_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WEB_ROOT = os.path.join(REPO_ROOT, "web")  # dispatcher dashboard
+APP_ROOT = os.path.join(REPO_ROOT, "app")  # rider app (PWA), served under /app/
 
 
 def parse_args(argv=None) -> Config:
@@ -36,6 +42,8 @@ def parse_args(argv=None) -> Config:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--host", default=defaults.http_host)
     p.add_argument("--port", type=int, default=int(env("DASH_PORT", defaults.http_port)))
+    p.add_argument("--tunnel-port", type=int, default=int(env("TUNNEL_PORT", defaults.tunnel_port)),
+                   help="second listener for phone tunnels (see Config.tunnel_port); 0 = off")
     p.add_argument("--mqtt-host", default=env("MQTT_HOST", defaults.mqtt_host),
                    help="broker address; omit to run without MQTT")
     p.add_argument("--mqtt-port", type=int, default=int(env("MQTT_PORT", defaults.mqtt_port)))
@@ -50,9 +58,18 @@ def parse_args(argv=None) -> Config:
     p.add_argument("--board-token", default=env("STREAM_TOKEN", ""))
     p.add_argument("--pause", type=float, default=defaults.pause_threshold)
     p.add_argument("--resume", type=float, default=defaults.resume_threshold)
+    p.add_argument("--min-rest", type=float, default=defaults.min_rest_sec,
+                   help="seconds a fatigue pause lasts at least, even if the score is already below --resume")
     p.add_argument("--simulate-real", action="store_true",
                    help="dev only: simulate the real rider too (shown as simulated on the page)")
     p.add_argument("--no-simulator", action="store_true", help="no simulated riders at all")
+    p.add_argument("--warn", type=float, default=defaults.warn_threshold,
+                   help="rider app: early-warning score, below --pause")
+    p.add_argument("--no-orders", action="store_true", help="rider app: don't generate simulated orders")
+    p.add_argument("--routing-url", default=env("ROUTING_URL", defaults.routing_url),
+                   help="rider app map: OSRM server for road routes")
+    p.add_argument("--no-routing", action="store_true",
+                   help="rider app map: never go online, draw straight-line estimates (venue without internet)")
     a = p.parse_args(argv)
 
     riders = list(defaults.riders)
@@ -72,17 +89,22 @@ def parse_args(argv=None) -> Config:
             p.error(f"--board expects RIDER=URL, got '{item}'")
         board_urls[rider_id] = url
     return dataclasses.replace(
-        defaults, http_host=a.host, http_port=a.port, mqtt_host=a.mqtt_host, mqtt_port=a.mqtt_port,
+        defaults, http_host=a.host, http_port=a.port, tunnel_port=a.tunnel_port, mqtt_host=a.mqtt_host, mqtt_port=a.mqtt_port,
         board_urls=board_urls, board_token=a.board_token, pause_threshold=a.pause,
-        resume_threshold=a.resume, simulate_real_rider=a.simulate_real,
+        resume_threshold=a.resume, min_rest_sec=a.min_rest, warn_threshold=a.warn, run_order_simulator=not a.no_orders,
+        routing_url="" if a.no_routing else a.routing_url,
+        simulate_real_rider=a.simulate_real,
         run_simulator=not a.no_simulator, auto_register=not a.no_auto_register, riders=tuple(riders))
 
 
 def main(argv=None) -> None:
     config = parse_args(argv)
     store = RiderStore(config)
+    orders = OrderBook(config, store)
 
     sources = []
+    if config.run_order_simulator:
+        sources.append(OrderSimulatorSource(orders, config))
     if config.run_simulator:
         sources.append(SimulatorSource(store, config))
     if config.mqtt_host:
@@ -95,13 +117,26 @@ def main(argv=None) -> None:
     def ticker():
         while not stop.wait(1.0):
             store.tick()
+            orders.tick()
 
     threading.Thread(target=ticker, name="store-tick", daemon=True).start()
 
     boards = {rider_id: BoardProxy(url, config.board_token) for rider_id, url in config.board_urls.items()}
-    server = build_server(config, store, boards, sources, WEB_ROOT)
+    planner = RoutePlanner(config.routing_url, config.routing_timeout_sec)  # one cache for both listeners
+    server = build_server(config, store, boards, sources, WEB_ROOT, orders, APP_ROOT, planner)
+    if config.tunnel_port and config.tunnel_port != config.http_port:
+        try:
+            tunnel = build_server(dataclasses.replace(config, http_port=config.tunnel_port), store, boards, sources,
+                                  WEB_ROOT, orders, APP_ROOT, planner)
+            threading.Thread(target=tunnel.serve_forever, name="http-tunnel-port", daemon=True).start()
+        except OSError as exc:  # port taken: the main listener is what matters
+            print(f"tunnel port {config.tunnel_port} not available ({exc}); continuing without it", file=sys.stderr)
+            config = dataclasses.replace(config, tunnel_port=0)
     shown_host = "localhost" if config.http_host in ("0.0.0.0", "") else config.http_host
     print(f"dashboard  http://{shown_host}:{config.http_port}/", file=sys.stderr)
+    print(f"rider app  http://{shown_host}:{config.http_port}/app/   (phones: docs/APP.md)", file=sys.stderr)
+    if config.tunnel_port:
+        print(f"tunnels    same app on port {config.tunnel_port} (for Tailscale Funnel etc.)", file=sys.stderr)
     print(f"sources    {', '.join(s.name for s in sources) or 'none (HTTP ingest only)'}", file=sys.stderr)
     for rider_id, url in config.board_urls.items():
         print(f"board      {rider_id} -> {url}", file=sys.stderr)

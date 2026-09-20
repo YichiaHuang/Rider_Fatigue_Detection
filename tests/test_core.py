@@ -28,6 +28,18 @@ class CircuitBreakerTest(unittest.TestCase):
         self.assertEqual(breaker.state, DISPATCH_NORMAL)
         self.assertFalse(breaker.update(12.0), "between thresholds must NOT pause")
 
+    def test_a_pause_lasts_at_least_the_minimum_rest(self):
+        breaker = CircuitBreaker(15, 8, min_rest_sec=60)
+        self.assertTrue(breaker.update(16, now=100))
+        self.assertFalse(breaker.update(2, now=130), "score is low, but only 30 s rested")
+        self.assertEqual((breaker.state, breaker.rest_remaining(130)), (DISPATCH_PAUSED, 30))
+        self.assertFalse(breaker.update(9, now=170), "rested, but the score is still above the resume line")
+        self.assertEqual(breaker.rest_remaining(170), 0)
+        self.assertTrue(breaker.update(7, now=171), "both conditions met")
+        self.assertEqual((breaker.state, breaker.rest_remaining(171)), (DISPATCH_NORMAL, 0))
+        self.assertTrue(breaker.update(16, now=200))
+        self.assertEqual(breaker.rest_remaining(210), 50, "a new pause starts a new rest")
+
     def test_rejects_inverted_thresholds(self):
         with self.assertRaises(ValueError):
             CircuitBreaker(8, 15)
@@ -47,13 +59,35 @@ class StoreTest(unittest.TestCase):
         r = self.rider()
         self.assertEqual((r["link"], r["status"], r["score"]), ("waiting", "unknown", None))
 
+    def test_operator_reset_lifts_the_pause_without_the_rest(self):
+        for score in (3, 16):
+            self.store.ingest_score(ScoreSample("rider-01", self.clock.now, score))
+            self.clock.now += 1
+        self.assertEqual(self.rider()["status"], "paused")
+        self.emitted.clear()
+        self.assertTrue(self.store.reset_dispatch("rider-01"))
+        self.assertFalse(self.store.reset_dispatch("nobody"))
+        rider = self.rider()
+        self.assertEqual((rider["status"], rider["dispatch"], rider["rest_remaining_sec"]), ("normal", "normal", None))
+        self.assertEqual(rider["score"], 16, "the number on screen is the board's until the board sends 0")
+        self.assertEqual([k for k, _ in self.emitted], ["event", "rider"])
+        self.assertEqual(self.emitted[0][1]["kind"], "score_reset")
+        self.store.ingest_score(ScoreSample("rider-01", self.clock.now, 0.0))
+        self.assertEqual(self.rider()["score"], 0.0)
+
     def test_pause_resume_events(self):
         for score in (3, 16, 12, 7):
             self.store.ingest_score(ScoreSample("rider-01", self.clock.now, score))
             self.clock.now += 1
-        kinds = [e["kind"] for e in self.store.snapshot()["events"]]
+        rider = self.rider()
+        self.assertEqual((rider["status"], rider["rest_remaining_sec"]), ("paused", 57.0),
+                         "score is back under the resume line after 3 s, but the minimum rest is not served")
+        self.clock.now += 60
+        self.store.ingest_score(ScoreSample("rider-01", self.clock.now, 7))
+        kinds = [e["kind"] for e in self.store.snapshot()["events"] if e["kind"] in ("paused", "resumed")]
         self.assertEqual(kinds, ["paused", "resumed"])
-        self.assertEqual(self.rider()["status"], "normal")
+        rider = self.rider()
+        self.assertEqual((rider["status"], rider["rest_remaining_sec"]), ("normal", None))
 
     def test_stale_score_is_unknown_not_green(self):
         self.store.ingest_score(ScoreSample("rider-01", self.clock.now, 2.0))
@@ -151,6 +185,17 @@ class PayloadTest(unittest.TestCase):
                     {"timestamp": 1, "quality": "good", "waveform": [0] * 401}):
             with self.assertRaises(PayloadError):
                 parse_vitals("r", bad)
+
+    def test_ppg_fatigue_block_is_validated_and_kept(self):
+        block = {"state": "pattern", "baseline_hr_bpm": 80.0, "hr_change_pct": -10.0, "recent_rmssd_ms": None, "bonus": 0}
+        sample = parse_vitals("r", {"timestamp": 1, "quality": "good", "heart_rate_bpm": 72, "fatigue": block})
+        self.assertEqual(sample.to_dict()["fatigue"], block)
+        self.assertIsNone(parse_vitals("r", {"timestamp": 1, "quality": "good"}).fatigue, "older boards don't send it")
+        for bad in ({"state": "sleepy"}, {"state": "normal", "bonus": "lots"}, "pattern", {"bonus": 1.0}):
+            with self.assertRaises(PayloadError):
+                parse_vitals("r", {"timestamp": 1, "quality": "good", "fatigue": bad})
+        detail = parse_detail("r", {"timestamp": 1, "score_visual": 9.5, "ppg_bonus": 2.0, "reasons": ["perclos", "ppg"]})
+        self.assertEqual((detail.score_visual, detail.ppg_bonus, detail.reasons), (9.5, 2.0, ("perclos", "ppg")))
 
     def test_health_enum(self):
         self.assertEqual(parse_health("r", {"timestamp": 1, "perception": "ok"}).perception, "ok")

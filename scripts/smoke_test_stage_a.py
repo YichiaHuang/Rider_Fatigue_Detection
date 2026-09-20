@@ -40,7 +40,7 @@ if __name__ == "__main__":
         (float(t), EYES_CLOSED if t < 20 else NORMAL) for t in range(0, 40)
     ])
 
-    run_scenario("單次打哈欠事件（應加一次 +3，不因持續張嘴而重複加分）", [
+    run_scenario("單次打哈欠事件（應只加一次 yawn_add，不因持續張嘴而重複加分）", [
         (float(t), YAWNING if 5 <= t < 8 else NORMAL) for t in range(0, 15)
     ])
 

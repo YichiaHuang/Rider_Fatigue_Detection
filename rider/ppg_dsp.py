@@ -29,6 +29,20 @@ MAX_PERFUSION_PCT = 6.0       # above this the "pulse" is motion
 MIN_SPECTRAL_PEAK = 0.55      # share of 0.7-3.6 Hz energy on the rate's harmonic comb (see spectral_peak)
 MAX_BASELINE_STEP = 0.03      # a >3 % jump between half-second means = sensor moved / just placed
 
+# RMSSD from an interrupted signal (SuccessiveDifferenceLog below).
+RMSSD_WINDOW_SEC = 60.0       # pool successive differences over this long ...
+RMSSD_MIN_PAIRS = 30          # ... and report once there are this many (~30 s of beats; see Munoz et al. 2015)
+PAIR_INTERVAL_TOLERANCE = 0.30  # an interval more than 30 % off the window's median is an artefact, not HRV
+#                                 (same 30 % rule as the "percentage change" outlier filter in Buendia et al. 2019)
+MIN_BEAT_GAP_SEC = 0.25       # two logged beats closer than this are the same beat seen by two overlapping windows
+# A window can pass every gate with a second of fidgeting at one end. Measured on
+# synthetic bursts: differences within 1 s of a burst had a median of ~130 ms against
+# ~20 ms elsewhere — and an RMSSD that RISES is exactly what the fatigue indicator
+# reads as drowsiness, so motion must never be able to fake it.
+DISTURBANCE_ENERGY_RATIO = 4.0  # a 1 s block with > 4x the window's median pulse-band energy (2x amplitude) is motion
+DISTURBANCE_GUARD_SEC = 2.5     # beats this close to such a block are not used for HRV
+MAX_PAIR_DIFF_FRACTION = 0.20   # |successive difference| above 20 % of the beat interval: missed/extra beat, not HRV
+
 QUALITY_NO_CONTACT = "no_contact"
 QUALITY_SETTLING = "settling"   # skin detected, not enough steady signal yet
 QUALITY_WEAK = "weak"           # signal present but the two estimators disagree / periodicity is poor
@@ -133,6 +147,18 @@ def spectral_peak(ac: list, fs: float, bpm: float) -> float:
     return on_comb / total if total > 0 else 0.0
 
 
+def _disturbed_times(ac: list, t: list, fs: float) -> list:
+    """Centre times of the 1 s blocks whose pulse-band energy stands far above the
+    rest of the window: someone moved the sensor there."""
+    block = max(2, int(fs))
+    energies = [(sum(v * v for v in ac[i:i + block]) / block, t[i + block // 2])
+                for i in range(0, len(ac) - block + 1, block)]
+    if len(energies) < 4:
+        return []
+    reference = sorted(e for e, _ in energies)[len(energies) // 2]
+    return [when for e, when in energies if reference > 0 and e > DISTURBANCE_ENERGY_RATIO * reference]
+
+
 def stable_tail(t: list, ir: list):
     """The most recent stretch with skin contact and no baseline jump. Putting a
     finger on the sensor steps the IR level from ~2k to ~100k; with that step
@@ -155,10 +181,12 @@ def stable_tail(t: list, ir: list):
 
 def analyze(t: list, ir: list) -> dict:
     """t: sample times (s), ir: raw IR counts; both the same length, oldest first.
-    Returns {"quality", "heart_rate_bpm", "rmssd_ms", "perfusion_index", "ir_dc", "autocorr"}."""
+    Returns {"quality", "heart_rate_bpm", "rmssd_ms", "perfusion_index", "ir_dc", "autocorr", "beat_pairs"}.
+    beat_pairs: [(time of the middle beat, interval before it, interval after it), ...] for every
+    three consecutive clean beats in a GOOD window — the raw material of SuccessiveDifferenceLog."""
     result = {"quality": QUALITY_NO_CONTACT, "heart_rate_bpm": None, "rmssd_ms": None,
               "perfusion_index": None, "ir_dc": None, "autocorr": None, "sample_hz": None,
-              "spectral_peak": None}
+              "spectral_peak": None, "beat_pairs": []}
     if len(t) >= 2 and t[-1] > t[0]:
         result["sample_hz"] = round((len(t) - 1) / (t[-1] - t[0]), 1)  # < 50 means samples are being lost
     if len(ir) < 10:
@@ -220,6 +248,13 @@ def analyze(t: list, ir: list) -> dict:
         return result
     result["quality"] = QUALITY_GOOD
     result["heart_rate_bpm"] = round(bpm_beats, 1)
+    lo, hi = (1.0 - PAIR_INTERVAL_TOLERANCE) * median, (1.0 + PAIR_INTERVAL_TOLERANCE) * median
+    disturbed = _disturbed_times(ac, t, fs)   # on the untrimmed trace: a burst in the trimmed margin still bends the beats next to it
+    result["beat_pairs"] = [
+        (beats[i + 1], intervals[i], intervals[i + 1]) for i in range(len(intervals) - 1)
+        if lo < intervals[i] < hi and lo < intervals[i + 1] < hi
+        and abs(intervals[i + 1] - intervals[i]) <= MAX_PAIR_DIFF_FRACTION * median
+        and all(abs(beats[i + 1] - when) > DISTURBANCE_GUARD_SEC for when in disturbed)]
     if len(good) >= 20:  # short-term HRV needs a meaningful number of beats
         diffs = [(b - a) ** 2 for a, b in zip(good, good[1:])]
         result["rmssd_ms"] = round(1000.0 * math.sqrt(sum(diffs) / len(diffs)), 1)
@@ -240,6 +275,54 @@ def display_waveform(t: list, ir: list, seconds: float = 6.0, points: int = 150)
     scale = max(abs(v) for v in tail) or 1.0
     step = (len(tail) - 1) / (points - 1)
     return [round(-tail[int(round(i * step))] / scale, 2) for i in range(points)]
+
+
+class SuccessiveDifferenceLog:
+    """RMSSD from a signal that keeps getting interrupted.
+
+    RMSSD is the root mean square of the differences between SUCCESSIVE beat
+    intervals. Nothing in that definition needs one unbroken recording — only that
+    each difference is taken between two intervals that really were adjacent. The
+    old path asked for 40 uninterrupted seconds that passed every gate as a whole;
+    on a real finger that happened in ~5 % of good seconds, because any fidget, FIFO
+    overflow or contact blip restarted the 40 s.
+
+    So: every GOOD 12 s window hands over its (interval, next interval) pairs; each
+    beat is logged once (windows overlap by 11 s); the RMSSD is pooled over the
+    pairs of the last RMSSD_WINDOW_SEC. An interruption simply contributes no
+    pairs — and no difference is ever taken ACROSS it, which is what would
+    otherwise turn a missed beat into a huge fake "variability".
+
+    What missing data costs is accuracy, and that cost has been measured: Kim et al.
+    2007 removed up to 100 s from 2,615 five-minute recordings and reported the
+    relative error of each time-domain index (mean interval most robust, pNN50 most
+    sensitive). Pairs within one window share one filter setting, so the sub-sample
+    timing is consistent inside every difference.
+    """
+
+    def __init__(self, window_sec: float = RMSSD_WINDOW_SEC, min_pairs: int = RMSSD_MIN_PAIRS):
+        self.window_sec, self.min_pairs = window_sec, min_pairs
+        self._pairs = []          # (t_mid, diff_seconds), oldest first
+        self._last_t = None
+
+    def add(self, beat_pairs: list) -> int:
+        added = 0
+        for t_mid, before, after in beat_pairs:
+            if self._last_t is not None and t_mid < self._last_t + MIN_BEAT_GAP_SEC:
+                continue          # already logged from an earlier, overlapping window
+            self._pairs.append((t_mid, after - before))
+            self._last_t = t_mid
+            added += 1
+        return added
+
+    def rmssd_ms(self, now: float):
+        """-> (RMSSD in ms | None while there are too few pairs, number of pairs in the window)."""
+        cutoff = now - self.window_sec
+        self._pairs = [p for p in self._pairs if p[0] >= cutoff]
+        n = len(self._pairs)
+        if n < self.min_pairs:
+            return None, n
+        return round(1000.0 * math.sqrt(sum(d * d for _, d in self._pairs) / n), 1), n
 
 
 class RateTracker:

@@ -30,6 +30,10 @@ class DetailSample:
     perclos: "float | None" = None
     head_pitch_deg: "float | None" = None
     inference_fps: "float | None" = None
+    score_visual: "float | None" = None  # Stage A alone; the published score = this + ppg_bonus (capped)
+    ppg_bonus: "float | None" = None     # what the PPG drowsiness indicator is adding right now
+    eyes_closed: "bool | None" = None
+    yawning: "bool | None" = None
     reasons: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
@@ -68,6 +72,9 @@ class VitalsSample:
     sample_hz: "float | None" = None    # samples actually received per second (nominal 50)
     spectral_peak: "float | None" = None  # share of pulse-band energy at the strongest line (>= 0.45 needed)
     held_sec: "float | None" = None     # quality "holding": how old the shown rate is
+    rmssd_pairs: "float | None" = None  # successive-difference pairs pooled into rmssd_ms (last 60 s; 30 needed)
+    # PPG drowsiness indicator (rider/ppg_fatigue.py): state + every number behind it, or None when it is off
+    fatigue: "dict | None" = None
     waveform: tuple = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
@@ -100,6 +107,9 @@ def parse_detail(rider_id: str, payload: dict) -> DetailSample:
     reasons = payload.get("reasons") or ()
     if not isinstance(reasons, (list, tuple)):
         raise PayloadError("'reasons' must be a list")
+    for flag in ("eyes_closed", "yawning"):
+        if payload.get(flag) is not None and not isinstance(payload[flag], bool):
+            raise PayloadError(f"'{flag}' must be a boolean")
     return DetailSample(
         rider_id=rider_id,
         timestamp=_number(payload, "timestamp"),
@@ -108,6 +118,9 @@ def parse_detail(rider_id: str, payload: dict) -> DetailSample:
         perclos=_number(payload, "perclos", required=False),
         head_pitch_deg=_number(payload, "head_pitch_deg", required=False),
         inference_fps=_number(payload, "inference_fps", required=False),
+        score_visual=_number(payload, "score_visual", required=False),
+        ppg_bonus=_number(payload, "ppg_bonus", required=False),
+        eyes_closed=payload.get("eyes_closed"), yawning=payload.get("yawning"),
         reasons=tuple(str(r) for r in reasons),
     )
 
@@ -117,6 +130,22 @@ def parse_health(rider_id: str, payload: dict) -> HealthSample:
     if perception not in PERCEPTION_VALUES:
         raise PayloadError(f"'perception' must be one of {PERCEPTION_VALUES}, got {perception!r}")
     return HealthSample(rider_id, _number(payload, "timestamp"), perception)
+
+
+PPG_FATIGUE_STATES = ("no_signal", "learning", "normal", "pattern", "elevated")
+MAX_FATIGUE_FIELDS = 24
+
+
+def _parse_ppg_fatigue(value) -> "dict | None":
+    """Flat dict: "state" plus numbers (or null). Shown on the dashboard as-is."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or len(value) > MAX_FATIGUE_FIELDS or value.get("state") not in PPG_FATIGUE_STATES:
+        raise PayloadError(f"'fatigue' must be an object with 'state' in {PPG_FATIGUE_STATES}")
+    for key, item in value.items():
+        if key != "state" and item is not None and (isinstance(item, bool) or not isinstance(item, (int, float))):
+            raise PayloadError(f"'fatigue.{key}' must be a number or null")
+    return dict(value)
 
 
 def parse_vitals(rider_id: str, payload: dict) -> VitalsSample:
@@ -140,4 +169,6 @@ def parse_vitals(rider_id: str, payload: dict) -> VitalsSample:
         sample_hz=_number(payload, "sample_hz", required=False),
         spectral_peak=_number(payload, "spectral_peak", required=False),
         held_sec=_number(payload, "held_sec", required=False),
+        rmssd_pairs=_number(payload, "rmssd_pairs", required=False),
+        fatigue=_parse_ppg_fatigue(payload.get("fatigue")),
         waveform=tuple(float(v) for v in waveform))

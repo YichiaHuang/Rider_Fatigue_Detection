@@ -9,3 +9,5 @@ __pycache__/
 *.jpeg
 *.png
 *.tflite
+# PWA 圖示例外：安裝到手機主畫面需要 PNG（由 tools/make_app_icons.py 產生）
+!app/icons/*.png

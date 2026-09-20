@@ -126,5 +126,15 @@ class SimulatorSource(Source):
             for i in range(150))
         self.store.ingest_vitals(VitalsSample(
             rider_id=rider.rider_id, timestamp=now, quality="no_contact" if off_skin else "good",
-            heart_rate_bpm=None if off_skin else round(bpm, 1), rmssd_ms=None if off_skin else 38.0,
-            perfusion_index=None if off_skin else 0.8, waveform=wave))
+            heart_rate_bpm=None if off_skin else round(bpm, 1), rmssd_ms=None if off_skin else (52.0 if fatigued else 38.0),
+            perfusion_index=None if off_skin else 0.8, waveform=wave,
+            # Stand-in for rider/ppg_fatigue.py so the dashboard panel can be built without a sensor.
+            # Numbers only illustrate the shape; the simulated SCORE does not include a PPG bonus.
+            fatigue={"state": "no_signal" if off_skin else ("pattern" if fatigued else "normal"),
+                     "baseline_progress": 1.0, "baseline_hr_bpm": 76.0, "baseline_rmssd_ms": 38.0,
+                     "recent_hr_bpm": None if off_skin else round(bpm, 1),
+                     "recent_rmssd_ms": None if off_skin else (52.0 if fatigued else 38.0),
+                     "hr_change_pct": None if off_skin else round(100.0 * (bpm - 76.0) / 76.0, 1),
+                     "rmssd_change_pct": None if off_skin else (36.8 if fatigued else 0.0),
+                     "hr_drop_pct": 8.0, "rmssd_rise_pct": 25.0, "pattern_sec": 0, "sustain_sec": 120.0,
+                     "bonus": 0.0, "bonus_cap": 6.0}))

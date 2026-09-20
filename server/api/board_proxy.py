@@ -3,7 +3,7 @@
 the projector machine doesn't need its own route to the board, and the mode
 token never reaches the page.
 
-Board side: rider/stream_server.py  ->  /status, /stream.mjpg, POST /mode
+Board side: rider/stream_server.py  ->  /status, /stream.mjpg, POST /mode, POST /reset
 """
 from __future__ import annotations
 
@@ -38,8 +38,15 @@ class BoardProxy:
             return {"reachable": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def set_mode(self, demo: bool) -> "tuple[int, dict]":
+        return self._post("/mode", {"demo": bool(demo)})
+
+    def reset_score(self) -> "tuple[int, dict]":
+        """Ask the board's runner to zero its fatigue score (operator button)."""
+        return self._post("/reset", {})
+
+    def _post(self, path: str, payload: dict) -> "tuple[int, dict]":
         request = urllib.request.Request(
-            f"{self.base_url}/mode", data=json.dumps({"demo": bool(demo)}).encode(), method="POST",
+            f"{self.base_url}{path}", data=json.dumps(payload).encode(), method="POST",
             headers={"Content-Type": "application/json", "X-Token": self.token})
         try:
             with urllib.request.urlopen(request, timeout=STATUS_TIMEOUT) as resp:

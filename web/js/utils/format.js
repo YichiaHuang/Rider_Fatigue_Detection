@@ -13,26 +13,34 @@ export const REASON_TEXT = {
   yawn: '打哈欠',
   head_down: '持續低頭',
   audio: '音訊異常',
+  ppg: '心率出現疲勞徵兆（心率降、HRV 升）',
   turned_away: '臉轉向側面：眼睛／嘴巴暫不計分',
 };
 
 export const EVENT_TEXT = {
   paused: '暫停新單',
   resumed: '恢復派單',
+  score_reset: '疲勞值已重設（操作人員）',
   link_stale: '訊號延遲',
   link_offline: '訊號中斷',
   link_restored: '訊號恢復',
   registered: '新裝置上線',
   perception_no_face: '偵測不到人臉',
   perception_camera_error: '攝影機故障',
+  // from the rider app (app/), see docs/API.md section 4
+  duty_on: '騎手上線接單',
+  duty_off: '騎手下線',
+  offer_withdrawn: '疲勞暫停：撤回待回覆的訂單',
+  alert_ack_warning: '騎手已確認疲勞提醒',
+  alert_ack_paused: '騎手已確認暫停派單提醒',
 };
 
 export function unknownReason(rider) {
+  if (rider.link === 'waiting') return '尚未收到資料';
+  if (rider.link === 'stale') return '訊號延遲，分數暫停顯示';
+  if (rider.link === 'offline') return '訊號中斷，分數暫停顯示';
   if (rider.perception === 'no_face') return '偵測不到人臉，分數暫停更新';
   if (rider.perception === 'camera_error') return '攝影機故障';
-  if (rider.link === 'waiting') return '尚未收到資料';
-  if (rider.link === 'stale') return '訊號延遲，以下為最後一筆分數';
-  if (rider.link === 'offline') return '訊號中斷，以下為最後一筆分數';
   return '';
 }
 

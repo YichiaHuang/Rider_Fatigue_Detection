@@ -11,6 +11,8 @@ Status rules (plan.md 4.4 — a stale green light is worse than no light):
   link       waiting | online | stale | offline   from time since the last score
   perception ok | no_face | camera_error | unknown  from the board's health message
   dispatch   normal | paused                       circuit breaker; frozen while unknown
+  orders     dispatch_block(): "fatigue" while paused, "no_signal" while status is
+             unknown — a rider nobody is watching gets no new orders either.
   status     what the UI shows: "unknown" unless link is online AND perception
              isn't reporting a fault; otherwise mirrors dispatch.
 """
@@ -34,6 +36,10 @@ STATUS_NORMAL = "normal"
 STATUS_PAUSED = "paused"
 STATUS_UNKNOWN = "unknown"
 
+BLOCK_FATIGUE = "fatigue"
+BLOCK_NO_SIGNAL = "no_signal"
+BLOCK_UNKNOWN_RIDER = "unknown_rider"
+
 MAX_EVENTS = 200
 RIDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 
@@ -41,7 +47,7 @@ RIDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 class _Rider:
     def __init__(self, spec: RiderSpec, config: Config):
         self.spec = spec
-        self.breaker = CircuitBreaker(config.pause_threshold, config.resume_threshold)
+        self.breaker = CircuitBreaker(config.pause_threshold, config.resume_threshold, config.min_rest_sec)
         self.history = deque()  # (received_at, score)
         self.score = None
         self.timestamp = None       # board clock
@@ -113,7 +119,7 @@ class RiderStore:
             rider.history.append((now, sample.score))
             self._trim(rider, now)
             link_was_lost = rider.link in (LINK_STALE, LINK_OFFLINE)  # "waiting" is a first contact, not a recovery
-            changed = rider.breaker.update(sample.score)
+            changed = rider.breaker.update(sample.score, now)
             self._refresh(rider, now)
             if changed:
                 paused = rider.breaker.state == DISPATCH_PAUSED
@@ -196,6 +202,60 @@ class RiderStore:
     def rider_ids(self) -> list:
         return list(self._riders)
 
+    def rider(self, rider_id: str) -> "dict | None":
+        """One rider's current state (same shape as snapshot()'s riders[])."""
+        with self._lock:
+            rider = self._riders.get(rider_id)
+            if rider is None:
+                return None
+            now = self._clock()
+            self._refresh(rider, now)
+            return self._rider_dict(rider, now)
+
+    def dispatch_block(self, rider_id: str) -> "str | None":
+        """The order side's only question: may this rider be offered an order?
+        None = yes. Otherwise why not:
+          "fatigue"    the breaker has paused them (it stays paused while the signal
+                       is lost, so this outranks "no_signal")
+          "no_signal"  nothing trustworthy is watching them right now — detector not
+                       connected, link stale/offline, no face, camera fault. Without
+                       this, unplugging the camera would be the way to keep working.
+          "unknown_rider"
+        """
+        with self._lock:
+            rider = self._riders.get(rider_id)
+            if rider is None:
+                return BLOCK_UNKNOWN_RIDER
+            self._refresh(rider, self._clock())
+            if rider.breaker.state == DISPATCH_PAUSED:
+                return BLOCK_FATIGUE
+            return BLOCK_NO_SIGNAL if rider.status == STATUS_UNKNOWN else None
+
+    def record_event(self, rider_id: str, kind: str) -> bool:
+        """Event-log entry that doesn't come from a board message (rider app:
+        duty on/off, alert acknowledged, offer withdrawn)."""
+        with self._lock:
+            rider = self._riders.get(rider_id)
+            if rider is None:
+                return False
+            self._add_event(rider, kind, rider.score, self._clock())
+            return True
+
+    def reset_dispatch(self, rider_id: str) -> bool:
+        """Operator pressed "reset fatigue score" and the board accepted it: lift
+        the pause right away (the board's next score is 0) and log it. The score
+        shown is left to the next board message so the two never disagree."""
+        with self._lock:
+            rider = self._riders.get(rider_id)
+            if rider is None:
+                return False
+            now = self._clock()
+            rider.breaker.reset()
+            self._add_event(rider, "score_reset", rider.score, now)
+            self._refresh(rider, now)
+            self._emit("rider", self._rider_dict(rider, now))
+            return True
+
     # ---- internals ------------------------------------------------------
     def _history(self, rider: _Rider, now: float, seconds: float) -> list:
         cutoff = now - seconds
@@ -260,6 +320,9 @@ class RiderStore:
             "link": rider.link,
             "perception": rider.perception,
             "dispatch": rider.breaker.state,
+            # paused only: seconds of the minimum rest still to serve (0 = served, now waiting for the score)
+            "rest_remaining_sec": (round(rider.breaker.rest_remaining(now), 1)
+                                   if rider.breaker.state == DISPATCH_PAUSED else None),
             "status": rider.status,
             "detail": rider.detail.to_dict() if rider.detail is not None else None,
             "vitals": rider.vitals.to_dict() if rider.vitals is not None else None,
